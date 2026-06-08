@@ -5,9 +5,8 @@ Complete setup steps to get n8n + automation running.
 ## Prerequisites
 
 - macOS / Linux / Windows with Docker + Docker Compose
-- Gmail account (for email integration)
-- Google Cloud account (for Google Docs API) — optional but recommended
-- career-ops repo at `/Users/rohith/Downloads/Github/career-ops`
+- Gmail account (for email integration, optional)
+- Google Cloud account (for Google Docs API, optional)
 
 ## Step 1: Install Docker
 
@@ -212,10 +211,6 @@ Repeat for:
 
 ## Troubleshooting
 
-### "Cannot connect to career-ops"
-- Check: `ls -la /Users/rohith/Downloads/Github/career-ops`
-- Check Docker volumes: `docker-compose exec n8n ls -la /workspace/career-ops`
-
 ### "Gmail authentication failed"
 - Regenerate App Password (may have expired)
 - Check: Settings → Gmail credential
@@ -247,6 +242,5 @@ docker-compose up -d    # Fresh start
 
 - **n8n Docs:** https://docs.n8n.io
 - **n8n Community:** https://community.n8n.io
-- **This Project:** See README.md
-- **career-ops:** See ../career-ops/CLAUDE.md
+- **This Project:** See README.md and STANDALONE.md
 

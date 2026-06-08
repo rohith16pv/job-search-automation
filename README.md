@@ -272,17 +272,12 @@ All data lives locally. No dependencies on external systems:
 
 ## Scripts (Node.js Helpers)
 
-All scripts in `/scripts` are called by n8n via HTTP webhooks or exec nodes.
+All scripts in `/scripts` are called by n8n via HTTP webhooks or exec nodes. They use local config files only.
 
 ### `/scripts/scan-wrapper.mjs`
-Wrapper around career-ops scan.mjs. Returns new jobs as JSON.
+Scans configured portals for new jobs. Returns results as JSON.
 
-**Input:**
-```json
-{
-  "portals_path": "/workspace/career-ops/portals.yml"
-}
-```
+**Input:** Uses local `config/portals.yml`
 
 **Output:**
 ```json
@@ -303,7 +298,7 @@ Wrapper around career-ops scan.mjs. Returns new jobs as JSON.
 ```
 
 ### `/scripts/evaluate-job.mjs`
-Minimal evaluator (calls career-ops evaluation or simple scoring).
+Evaluates job fit using keyword matching and local profile.
 
 **Input:**
 ```json
@@ -312,7 +307,7 @@ Minimal evaluator (calls career-ops evaluation or simple scoring).
   "job_title": "Senior PM",
   "company": "Company",
   "jd_text": "Full JD content...",
-  "cv_path": "/workspace/career-ops/cv.md"
+  "config_path": "/workspace/config"
 }
 ```
 
@@ -330,15 +325,14 @@ Minimal evaluator (calls career-ops evaluation or simple scoring).
 ```
 
 ### `/scripts/dedup-jobs.mjs`
-Check job against career-ops scan-history.tsv.
+Check if job already exists in local scan history (JSONL format).
 
 **Input:**
 ```json
 {
   "company": "Company",
   "role": "Role",
-  "posting_url": "https://...",
-  "scan_history_path": "/workspace/career-ops/data/scan-history.tsv"
+  "posting_url": "https://..."
 }
 ```
 
