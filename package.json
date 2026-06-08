@@ -1,0 +1,29 @@
+{
+  "name": "job-search-automation",
+  "version": "1.0.0",
+  "description": "n8n-based job search automation with career-ops integration",
+  "main": "scripts/index.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "docker-compose up -d",
+    "stop": "docker-compose down",
+    "logs": "docker-compose logs -f n8n",
+    "dev": "npm run start && sleep 5 && open http://localhost:5678",
+    "health": "curl -s http://localhost:5678/api/v1/health | jq .",
+    "scan": "node scripts/scan-wrapper.mjs",
+    "evaluate": "node scripts/evaluate-job.mjs",
+    "dedup": "node scripts/dedup-jobs.mjs",
+    "tweak": "node scripts/resume-tweaker.mjs"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "yaml": "^2.3.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

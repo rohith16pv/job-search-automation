@@ -1,0 +1,38 @@
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+credentials/
+secrets/
+
+# Docker
+docker-compose.override.yml
+
+# n8n
+.n8n/
+node_modules/
+n8n_storage/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+
+# Data
+data/
+output/
+*.json.backup
+
+# Optional: Don't commit workflow exports initially
+# workflows/*.json
+
+# macOS
+.AppleDouble
+.AppleDB
+*.swp
+*~
