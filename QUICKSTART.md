@@ -3,12 +3,12 @@
 ## TL;DR for Impatient
 
 ```bash
-# 1. Clone repo (already done)
+# 1. Go to repo
 cd /Users/rohith/Downloads/Github/job-search-automation
 
 # 2. Copy env template
 cp .env.example .env.local
-# Edit .env.local: add CAREER_OPS_PATH, GMAIL credentials
+# Edit .env.local: add GMAIL_EMAIL + GMAIL_APP_PASSWORD
 
 # 3. Start Docker
 docker-compose up -d && sleep 15
@@ -16,11 +16,11 @@ docker-compose up -d && sleep 15
 # 4. Open browser
 open http://localhost:5678
 
-# 5. First run: set email + password
+# 5. First run: set admin email + password
 
-# 6. Add Gmail credential (Settings → Credentials → Gmail → OAuth)
+# 6. Add Gmail credential (Settings → Credentials → New → Gmail)
 
-# 7. Done!
+# 7. Done! All data is local.
 ```
 
 ## In 30 Seconds After That
@@ -31,54 +31,59 @@ open http://localhost:5678
 3. Add HTTP Request: fetch job HTML
 4. Add Gmail: send to yourself
 5. Click Execute, paste job URL
-6. Check email
+6. Check email for resume brief
 
-### Option B: Run career-ops scan
+### Option B: Run scanner
 1. Create workflow with Manual trigger
 2. Add "Execute Command" node
-3. Command: `node /workspace/career-ops/scan.mjs --json`
-4. Execute → see jobs
+3. Command: `node /workspace/scripts/scan-wrapper.mjs`
+4. Execute → see jobs in logs
 
-### Option C: Run now (use your existing career-ops)
+### Option C: All data is local
 ```bash
-cd ../career-ops
-/career-ops scan  # Already works!
+cat config/profile.yml       # Your profile
+cat config/cv.md            # Your resume
+cat config/portals.yml      # Job sources
+cat data/applications.md    # Tracker
 ```
 
 ## Full Setup (30 Minutes)
 
 Follow SETUP.md for:
-1. Gmail App Password
-2. Google Docs API (optional)
-3. Credential setup
-4. Workflow creation
-5. Scheduling
+1. Gmail App Password setup
+2. Google Docs API (optional, for resume briefing docs)
+3. Add credentials in n8n UI
+4. Create workflows
+5. Set cron schedules
 
 ## What You Get
 
 - **Manual:** Paste job URL → get resume brief + email draft
-- **Weekly:** Friday 9am → scan portals → email top 5 jobs with brief
-- **Scheduled apply:** Daily → queue up pre-approved applications
-- **Feedback loop:** Track interviews → learn what works
+- **Weekly:** Friday 9am → scan your configured portals → email top 5 relevant jobs
+- **Scheduled apply:** Daily → queue applications (you approve before submit)
+- **Feedback loop:** Mark outcomes (interview/rejected/offer) → system learns what works
 
 ## Common First Mistakes
 
 1. **"n8n won't start"** → Docker not running. Open Docker Desktop.
-2. **"Cannot find career-ops"** → Update CAREER_OPS_PATH in .env.local
+2. **"Cannot read config/cv.md"** → Make sure you're in the right directory
 3. **"Gmail fails"** → Use App Password, not main password
-4. **"Workflows stuck"** → n8n needs 24/7 uptime for scheduling. Use `docker-compose up -d`
+4. **"Workflows stuck"** → n8n needs 24/7 uptime for cron scheduling. Use `docker-compose up -d`
 
-## Next: Connect to career-ops
+## Your Data Stays Local
 
-This automation is read-only on career-ops. After workflows email you:
+All your profile, resume, and tracking data lives in `config/` and `data/`:
+- ✅ No external service dependencies
+- ✅ Can work completely offline
+- ✅ Can be backed up with git
 
 ```bash
-cd ../career-ops
-node merge-tracker.mjs  # Imports batch results
-git status             # See new applications
+git init
+git add config/ data/
+git commit -m "Initial setup"
 ```
 
 ---
 
-**That's it.** You now have a local job automation engine that doesn't touch career-ops.
+**That's it.** You have a fully standalone job automation engine that never touches any external systems.
 

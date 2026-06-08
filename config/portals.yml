@@ -1,0 +1,167 @@
+# ATS Portals Configuration
+# Job boards and career pages to scan for new opportunities
+
+portals:
+  # Greenhouse ATS
+  - name: "Stripe"
+    type: "greenhouse"
+    base_url: "https://stripe.com/jobs"
+    careers_url: "https://jobs.lever.co/stripe"
+    search_keywords:
+      - "product manager"
+      - "payments"
+
+  - name: "Square"
+    type: "greenhouse"
+    base_url: "https://square.com/careers"
+    careers_url: "https://jobs.lever.co/square"
+    search_keywords:
+      - "senior product manager"
+      - "payments"
+
+  - name: "Adyen"
+    type: "lever"
+    base_url: "https://adyen.com/careers"
+    careers_url: "https://jobs.lever.co/adyen"
+    search_keywords:
+      - "product manager"
+      - "fintech"
+
+  - name: "PayPal"
+    type: "workday"
+    base_url: "https://wd5.myworkday.com/paypal"
+    search_keywords:
+      - "senior product manager"
+      - "payments"
+
+  - name: "Block"
+    type: "lever"
+    base_url: "https://block.com/careers"
+    careers_url: "https://jobs.lever.co/block"
+    search_keywords:
+      - "product manager"
+      - "fintech"
+
+  # Add more portals
+  - name: "Google (Payments)"
+    type: "google_careers"
+    base_url: "https://careers.google.com"
+    search_keywords:
+      - "product manager"
+      - "payments"
+
+  - name: "Amazon (Payments)"
+    type: "amazon_jobs"
+    base_url: "https://amazon.jobs"
+    search_keywords:
+      - "product manager"
+      - "payments"
+
+  - name: "Apple"
+    type: "apple_jobs"
+    base_url: "https://jobs.apple.com"
+    search_keywords:
+      - "product manager"
+      - "payments"
+
+# Job boards (scrape)
+job_boards:
+  - name: "LinkedIn Jobs"
+    type: "linkedin"
+    enabled: true
+    search_url_template: "https://www.linkedin.com/jobs/search?keywords={keyword}&location={location}"
+
+  - name: "Indeed"
+    type: "indeed"
+    enabled: false
+    search_url_template: "https://www.indeed.com/jobs?q={keyword}&l={location}"
+
+  - name: "AngelList"
+    type: "angellist"
+    enabled: true
+    search_url_template: "https://angel.co/jobs?keywords={keyword}"
+
+# Filtering rules
+filters:
+  # Must match at least one
+  title_keywords:
+    positive:
+      - "Senior Product Manager"
+      - "Staff Product Manager"
+      - "Principal Product Manager"
+      - "Director of Product"
+      - "Head of Product"
+    negative:
+      - "Associate Product Manager"
+      - "Junior Product Manager"
+      - "VP of Engineering"
+      - "VP of Sales"
+      - "Head of Engineering"
+
+  # Must match at least one domain keyword
+  domain_keywords:
+    - "payments"
+    - "fintech"
+    - "settlement"
+    - "money movement"
+    - "financial services"
+    - "banking"
+
+  # Location whitelist
+  locations:
+    - "San Francisco"
+    - "Bay Area"
+    - "Remote"
+    - "New York"
+
+  # Exclude these locations
+  locations_blocked:
+    - "India"
+    - "Philippines"
+    - "China"
+
+  # Company size preference
+  company_size:
+    min_employees: 50
+    max_employees: 50000
+    allow_pre_series_a: false
+
+  # Minimum salary
+  min_salary: 250000
+
+# Scanning schedule (cron format)
+schedule:
+  # Every Wednesday at 9 AM PT
+  time: "0 9 * * 3"
+  timezone: "America/Los_Angeles"
+  frequency: "weekly" # weekly, daily, continuous
+
+# Output
+output:
+  format: "json"
+  save_to: "data/scanned_jobs.json"
+  dedup_file: "data/scan_history.jsonl"
+
+# Notifications
+notifications:
+  email: true
+  email_recipient: "pv.rohith96@gmail.com"
+  email_on_new_jobs: true
+  min_jobs_to_email: 3
+  max_jobs_to_email: 10
+
+# Advanced options
+options:
+  # Use headless browser for JavaScript-heavy sites
+  use_browser: false
+
+  # Retry failed requests
+  max_retries: 3
+  retry_delay_ms: 1000
+
+  # Request throttling (be respectful)
+  request_delay_ms: 2000
+  max_concurrent_requests: 3
+
+  # User agent (some sites block bots)
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"

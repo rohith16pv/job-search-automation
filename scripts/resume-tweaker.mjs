@@ -5,13 +5,14 @@
  *
  * Analyze CV against JD and suggest resume section reordering.
  * Does NOT modify cv.md. Returns suggestions only.
+ * Fully standalone — no career-ops dependency.
  *
  * Input:
  * {
- *   cv_path: "/workspace/career-ops/cv.md",
  *   jd_text: "Full JD content...",
  *   company: "Company Name",
- *   role: "Role Title"
+ *   role: "Role Title",
+ *   config_path: "/workspace/config" (optional, defaults to local config/)
  * }
  *
  * Output:
@@ -30,6 +31,10 @@
 
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function parseCV(cvText) {
   const sections = {};
@@ -137,16 +142,19 @@ function assessConfidence(matches, sectionScores) {
 
 async function tweakResume(input) {
   try {
-    const { cv_path, jd_text, company, role } = input;
+    const { jd_text, company, role, config_path } = input;
 
     console.log(`[resume-tweaker] Analyzing ${company} — ${role}`);
 
+    // Determine CV path
+    const cvPath = config_path ? path.join(config_path, 'cv.md') : path.join(__dirname, '../config/cv.md');
+
     // Read CV
-    if (!existsSync(cv_path)) {
-      throw new Error(`CV not found: ${cv_path}`);
+    if (!existsSync(cvPath)) {
+      throw new Error(`CV not found: ${cvPath}`);
     }
 
-    const cvText = readFileSync(cv_path, 'utf-8');
+    const cvText = readFileSync(cvPath, 'utf-8');
     const cvSections = parseCV(cvText);
     const originalOrder = Object.keys(cvSections);
 

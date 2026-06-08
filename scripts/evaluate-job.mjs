@@ -3,16 +3,15 @@
 /**
  * evaluate-job.mjs
  *
- * Simple job evaluator.
- * For now: keyword matching + basic scoring.
- * Later: can call career-ops evaluation via API.
+ * Standalone job evaluator for n8n integration.
+ * Keyword matching + basic scoring. No external dependencies.
  *
  * Input (from n8n):
  * {
  *   job_title: "Senior Product Manager",
  *   company: "Company Name",
  *   jd_text: "Full JD content...",
- *   cv_path: "/workspace/career-ops/cv.md"
+ *   config_path: "/workspace/config"
  * }
  *
  * Output:
@@ -27,22 +26,41 @@
  * }
  */
 
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import path from 'path';
+import YAML from 'yaml';
+import { fileURLToPath } from 'url';
 
-// Keywords profile
-const PROFILE = {
-  target_roles: ['Senior PM', 'Staff PM', 'Product Manager', 'Director of Product'],
-  domain_keywords: [
-    'payments', 'fintech', 'settlement', 'ACH', 'RTP',
-    'embedded finance', 'BaaS', 'cross-border', 'FX', 'rails',
-    'treasury', 'money movement', 'liquidity'
-  ],
-  nice_to_have: [
-    'API', 'infrastructure', 'scalability', 'B2B', 'SaaS',
-    'mobile', 'web', 'compliance', 'risk'
-  ],
-};
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load profile from local config
+function loadProfile(configPath = null) {
+  const profilePath = configPath ? path.join(configPath, 'profile.yml') : path.join(__dirname, '../config/profile.yml');
+
+  if (!existsSync(profilePath)) {
+    console.warn(`[evaluate] profile.yml not found at ${profilePath}, using defaults`);
+    return {
+      target_roles: ['Senior PM', 'Staff PM', 'Product Manager', 'Director of Product'],
+      domain_keywords: [
+        'payments', 'fintech', 'settlement', 'ACH', 'RTP',
+        'embedded finance', 'BaaS', 'cross-border', 'FX', 'rails',
+        'treasury', 'money movement', 'liquidity'
+      ],
+      nice_to_have: [
+        'API', 'infrastructure', 'scalability', 'B2B', 'SaaS',
+        'mobile', 'web', 'compliance', 'risk'
+      ],
+    };
+  }
+
+  const config = YAML.parse(readFileSync(profilePath, 'utf-8'));
+  return {
+    target_roles: config.targeting?.target_roles || [],
+    domain_keywords: config.targeting?.domain_keywords || [],
+    nice_to_have: config.targeting?.nice_to_have_keywords || [],
+  };
+}
 
 function extractKeywords(text) {
   const lower = text.toLowerCase();
@@ -147,24 +165,21 @@ async function evaluateJob(input) {
       job_title,
       company,
       jd_text,
-      cv_path,
+      config_path, // Path to config directory
     } = input;
 
     console.log(`[evaluate-job] Evaluating ${company} — ${job_title}`);
 
-    // Read CV
-    let cvContent = '';
-    if (cv_path) {
-      try {
-        cvContent = readFileSync(cv_path, 'utf-8');
-      } catch (err) {
-        console.warn(`[evaluate-job] Could not read CV: ${err.message}`);
-      }
-    }
+    // Load profile from local config
+    const PROFILE = loadProfile(config_path);
 
-    // Assess
+    // Assess title match
     const titleMatch = assessTitleMatch(job_title);
+
+    // Extract keywords from JD
     const keywords = extractKeywords(jd_text);
+
+    // Calculate score
     const score = calculateScore(
       titleMatch.score,
       keywords,

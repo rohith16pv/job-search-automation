@@ -1,38 +1,40 @@
 # Job Search Automation — n8n Workflow Engine
 
-Standalone n8n-based job search automation. Integrates with career-ops (read-only) to scan, assess, tweak, and email job opportunities without modifying the main system.
+**Fully standalone** n8n-based job search automation. Zero dependencies on external systems.
+
+Scan job portals → Evaluate fit → Tweak resume → Email you with briefing → You apply manually.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     n8n Workflow Engine                         │
+│              n8n Automation Engine (Docker)                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  [Weekly Cron Trigger]                                          │
+│  [Weekly Cron: Friday 9am]                                      │
 │         ↓                                                       │
-│  [1. Job Scanner] → ATS APIs + LinkedIn                        │
+│  [1. Job Scanner]  (local config → mock jobs or real APIs)     │
 │         ↓                                                       │
-│  [2. Deduplication] → against scan-history.tsv (career-ops)    │
+│  [2. Dedup Check]  (against local scan_history.jsonl)          │
 │         ↓                                                       │
-│  [3. Relevance Filter] → title + domain + location checks      │
+│  [3. Filter]       (by role, domain, location from profile)    │
 │         ↓                                                       │
-│  [4. Assessment] → Call career-ops evaluation (via Node.js)    │
+│  [4. Evaluate]     (Node.js script: keyword matching + score)   │
 │         ↓                                                       │
-│  [5. Resume Tweaking] → Google Docs + keyword matching         │
+│  [5. Resume Brief] (Google Docs: suggested reordering)         │
 │         ↓                                                       │
-│  [6. Email Draft] → Gmail with tweaked resume link             │
+│  [6. Draft Email]  (Gmail: send resume brief + job link)       │
 │         ↓                                                       │
-│  [7. Tracker Update] → Write to applications.md (TSV format)   │
+│  [7. Tracker]      (local applications.md)                     │
 │         ↓                                                       │
-│  [User Review + Apply] ← Email with review checklist           │
+│  [User Review]     ← Email with checklist, you decide          │
 │                                                                 │
-│ Integration Points:                                             │
-│ - career-ops/data/scan-history.tsv (read: dedup)              │
-│ - career-ops/cv.md (read: resume content)                      │
-│ - career-ops/config/profile.yml (read: target roles, location) │
-│ - career-ops/modes/oferta.md (read: evaluation template)       │
-│ - Output: batch/tracker-additions/*.tsv (for merge)            │
+│ All Data Local:                                                │
+│ - config/profile.yml (your profile)                            │
+│ - config/cv.md (your resume)                                   │
+│ - config/portals.yml (job sources)                             │
+│ - data/scan_history.jsonl (dedup log)                          │
+│ - data/applications.md (tracker)                               │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -217,34 +219,23 @@ WEBHOOK_BASE_URL=http://localhost:5678
 
 ---
 
-## Integration with career-ops
+## Fully Standalone
 
-n8n reads from career-ops (never writes directly):
+All data lives locally. No dependencies on external systems:
 
-| career-ops File | n8n Usage | Access |
+| File | Purpose | Format |
 |---|---|---|
-| `data/scan-history.tsv` | Dedup check | Read-only |
-| `cv.md` | Extract CV bullets | Read-only |
-| `config/profile.yml` | Target roles, location filters | Read-only |
-| `modes/oferta.md` | Evaluation template reference | Read-only |
-| `portals.yml` | Job source config | Read-only |
-| `article-digest.md` | Proof points for resume tweaking | Read-only (optional) |
+| `config/profile.yml` | Your profile (name, email, target roles, location, keywords) | YAML |
+| `config/cv.md` | Your resume (sections: Experience, Projects, Education, Skills) | Markdown |
+| `config/portals.yml` | ATS portals to scan (Greenhouse, Ashby, Lever, LinkedIn, etc.) | YAML |
+| `data/scan_history.jsonl` | Dedup log (which jobs we've already seen) | JSONL |
+| `data/applications.md` | Application tracker (company, role, status, score, result) | Markdown |
 
-n8n writes to career-ops (via batch layer):
-
-| File | Format | Trigger |
-|---|---|---|
-| `batch/tracker-additions/{num}-{company}.tsv` | TSV (1 line) | After email sent |
-| `data/apply-log.tsv` | TSV | After application |
-| `data/rate-limits.json` | JSON | Real-time tracking |
-
-**Manual merge step:** After n8n batch, user runs:
-```bash
-cd career-ops
-node merge-tracker.mjs
-node verify-pipeline.mjs
-git add data/applications.md && git commit -m "chore: merge automated applications"
-```
+**No external dependencies:**
+- ✅ Runs locally in Docker
+- ✅ All data stored locally
+- ✅ Can work offline
+- ✅ Nothing synced to external services (unless you enable Google Docs/Gmail)
 
 ---
 

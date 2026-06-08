@@ -1,0 +1,108 @@
+# Job Search Automation Profile
+# Customize this file with your details
+
+candidate:
+  full_name: "Rohith Purimetla Vinay"
+  email: "pv.rohith96@gmail.com"
+  phone: "+1-650-664-8887"
+  location: "San Francisco Bay Area, CA"
+  timezone: "America/Los_Angeles"
+
+career:
+  current_title: "Senior Product Manager"
+  years_experience: 10
+  industry_focus: "Payments, Fintech, Money Movement"
+
+targeting:
+  # Roles you want to apply for
+  target_roles:
+    - "Senior Product Manager"
+    - "Staff Product Manager"
+    - "Director of Product"
+    - "Head of Product"
+
+  # Geographic preferences
+  locations:
+    - "San Francisco"
+    - "Bay Area"
+    - "Remote - US"
+
+  # Minimum acceptable seniority level
+  min_seniority: "PM2" # PM1, PM2, Staff, Director
+
+  # Domain keywords (must have at least one)
+  domain_keywords:
+    - "payments"
+    - "fintech"
+    - "settlement"
+    - "ACH"
+    - "RTP"
+    - "embedded finance"
+    - "BaaS"
+    - "cross-border"
+    - "FX"
+    - "rails"
+    - "treasury"
+    - "money movement"
+    - "liquidity"
+
+  # Nice to have (scoring boost)
+  nice_to_have_keywords:
+    - "API"
+    - "infrastructure"
+    - "scalability"
+    - "B2B"
+    - "SaaS"
+    - "compliance"
+    - "risk"
+
+  # Deal breakers (avoid these)
+  blockers:
+    - "on-site only in non-Bay-Area"
+    - "pre-Series A startup"
+    - "cryptocurrency-focused"
+
+compensation:
+  target_base_min: 250000
+  target_base_max: 350000
+  target_equity_vest_years: 4
+  target_bonus_pct: 20
+
+resume:
+  # Which sections to include in generated resumes
+  sections:
+    - "Summary"
+    - "Experience"
+    - "Projects"
+    - "Education"
+    - "Skills"
+
+  # Proof points / achievements to highlight
+  key_achievements:
+    - "Scaled payments platform to $1B+ GMV"
+    - "Led cross-functional team of 12 engineers"
+    - "Negotiated regulatory compliance for 5 new markets"
+    - "Reduced settlement time from T+2 to T+0"
+
+research:
+  # Companies you're interested in
+  target_companies:
+    - "Stripe"
+    - "Square"
+    - "Adyen"
+    - "Block"
+    - "PayPal"
+
+  # Companies to avoid
+  avoided_companies:
+    - "Crypto exchange (name)"
+    - "Low-funding startup (name)"
+
+# For later customization
+notes: |
+  Edit this file to personalize your job search:
+  - target_roles: What positions interest you?
+  - locations: Where do you want to work?
+  - domain_keywords: What type of work excites you?
+  - blockers: What's a deal-breaker for you?
+  - compensation: What's your salary range?

@@ -2,31 +2,39 @@
 
 /**
  * dedup-jobs.mjs
- * Check if a job posting already exists in career-ops scan-history.tsv
+ * Check if a job posting already exists in local scan history.
+ * Fully standalone — no career-ops dependency.
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { fileURLToPath } from 'url';
 
-const CAREER_OPS_PATH = process.env.CAREER_OPS_PATH || '/workspace/career-ops';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_PATH = path.join(__dirname, '../data');
 
-function parseScanhHistory() {
-  const historyPath = path.join(CAREER_OPS_PATH, 'data', 'scan-history.tsv');
+function loadScanHistory() {
+  const historyPath = path.join(DATA_PATH, 'scan_history.jsonl');
 
   if (!existsSync(historyPath)) {
-    console.warn('[dedup] scan-history.tsv not found');
+    console.log('[dedup] scan_history.jsonl not found, starting fresh');
     return [];
   }
 
   const content = readFileSync(historyPath, 'utf-8');
-  const lines = content.split('\n').filter(line => line.trim());
-
-  // Skip header
-  return lines.slice(1).map(line => {
-    const [date, company, role, url, source, hash] = line.split('\t');
-    return { date, company, role, url, source, hash };
-  });
+  return content
+    .split('\n')
+    .filter(line => line.trim())
+    .map(line => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
 }
 
 function generateContentHash(jdText) {
@@ -44,7 +52,7 @@ function checkDuplicate(input) {
       jd_text, // Optional: for content-based dedup
     } = input;
 
-    const history = parseScanhHistory();
+    const history = loadScanHistory();
 
     // URL-based dedup (primary)
     const urlMatch = history.find(h => h.url === posting_url);

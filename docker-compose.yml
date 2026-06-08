@@ -17,7 +17,8 @@ services:
       - n8n_storage:/home/node/.n8n
       - ./workflows:/home/node/.n8n/workflows
       - ./scripts:/workspace/scripts
-      - ../career-ops:/workspace/career-ops:ro
+      - ./data:/workspace/data
+      - ./config:/workspace/config
     networks:
       - n8n_network
     healthcheck:

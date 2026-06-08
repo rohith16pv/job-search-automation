@@ -23,10 +23,15 @@ npm-debug.log*
 Thumbs.db
 .vscode/settings.json
 
-# Data
-data/
+# Generated data (keep templates)
+data/*.jsonl
+data/*.tsv
 output/
 *.json.backup
+
+# But do track:
+!data/applications.md
+!data/.gitkeep
 
 # Optional: Don't commit workflow exports initially
 # workflows/*.json

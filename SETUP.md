@@ -32,28 +32,29 @@ docker --version
 docker-compose --version
 ```
 
-## Step 2: Clone & Configure This Repo
+## Step 2: Configure This Repo
 
 ```bash
-cd /Users/rohith/Downloads/Github
+cd /Users/rohith/Downloads/Github/job-search-automation
 
-# Already created by you, but if not:
-mkdir job-search-automation && cd job-search-automation
-
-# Copy environment variables
+# Copy environment variables template
 cp .env.example .env.local
 
-# Edit .env.local with your credentials
+# Edit .env.local with your details
 vim .env.local
 ```
 
-**Edit `./.env.local`:**
+**Edit `./.env.local` (only Gmail/Google needed):**
 ```
-CAREER_OPS_PATH=/Users/rohith/Downloads/Github/career-ops
 GMAIL_EMAIL=pv.rohith96@gmail.com
 GMAIL_APP_PASSWORD=<see step 3>
 GOOGLE_DOCS_FOLDER_ID=<see step 4>
 ```
+
+**Customize Your Profile (in `config/`):**
+- `config/profile.yml` — your target roles, locations, keywords
+- `config/cv.md` — your resume/CV
+- `config/portals.yml` — which ATS sites to scan (Stripe, Square, etc.)
 
 ## Step 3: Set Up Gmail API
 
@@ -170,22 +171,27 @@ See README.md for workflow specifications.
 ### Test 1: Manual Job Evaluation
 1. n8n UI → Workflows → "manual-job-brief" (create if doesn't exist)
 2. Click "Execute"
-3. Paste a real job URL
-4. Check email for result
+3. Paste a real job URL or use test data
+4. Check email for resume brief
 
-### Test 2: Scan Career-Ops
+### Test 2: Run Scanner
 1. In n8n UI, create a simple workflow:
    - Trigger: Manual
-   - Node: "Execute Command" → `node /workspace/career-ops/scan.mjs --json`
-   - Node: "Gmail" → send results to yourself
+   - Node: "Execute Command" → `node /workspace/scripts/scan-wrapper.mjs`
+   - Output: JSON array of new jobs
 2. Click "Execute"
-3. Check email
+3. Check logs for results
 
-### Test 3: Merge with career-ops
+### Test 3: Check Local Tracker
 ```bash
-cd ../career-ops
-node merge-tracker.mjs
-git status
+# View your applications
+cat data/applications.md
+
+# View your profile
+cat config/profile.yml
+
+# View scan history
+cat data/scan_history.jsonl
 ```
 
 ## Step 10: Schedule Recurring Workflows
