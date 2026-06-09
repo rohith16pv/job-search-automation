@@ -33,6 +33,21 @@ greenhouse:
   - databricks
   - scaleai
   - uberfreight
+  # New additions — Payments Infrastructure
+  - finix
+  - highnote
+  - orum
+  - crossriverbank
+  - sardine
+  - ripple
+  - tipalti
+  - deel
+  - papayaglobal
+  - rain
+  - argyle
+  - bitso
+  - banked
+  - i2c
   # Commerce / SaaS
   - toasttab
   - shopify
@@ -76,6 +91,8 @@ lever:
 
 ashby:
   # Fintech / Payments
+  - astra
+  - payrails
   - ramp
   - modern-treasury
   - mercury
@@ -133,6 +150,12 @@ workday:
     keyword: "product manager"
   - name: "MX Technologies"
     url: "https://mx.wd1.myworkdayjobs.com/EXT-MX"
+    keyword: "product manager"
+  - name: "JPMorgan Chase"
+    url: "https://jpmorgan.wd1.myworkdayjobs.com/JPMorgan"
+    keyword: "product manager payments"
+  - name: "Citi"
+    url: "https://citi.wd5.myworkdayjobs.com/External_Career_Site"
     keyword: "product manager"
 
 linkedin:

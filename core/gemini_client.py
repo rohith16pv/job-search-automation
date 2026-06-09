@@ -250,6 +250,50 @@ section_order, new_bullets_to_add — only populate if score >= 50)."""
             "global payments infrastructure, multi-currency wallets, "
             "cross-border payouts, embedded finance APIs, bank-to-bank transfers"
         ),
+        "jpmorgan": (
+            "wholesale payments, treasury services, ISO 20022, real-time payments, "
+            "global clearing, institutional payment rails, liquidity management"
+        ),
+        "citi": (
+            "treasury and trade solutions, cross-border payments, supply chain finance, "
+            "global transaction banking, FX, trade finance, institutional clients"
+        ),
+        "ripple": (
+            "blockchain-based payments, RippleNet, cross-border settlement, "
+            "ODL on-demand liquidity, CBDC, crypto-enabled money movement"
+        ),
+        "tipalti": (
+            "global accounts payable, mass payouts, supplier payments, "
+            "payment operations automation, multi-currency, tax compliance"
+        ),
+        "deel": (
+            "global payroll, contractor payments, employer of record, "
+            "cross-border compliance, international hiring, multi-currency payroll"
+        ),
+        "finix": (
+            "payments infrastructure, payment facilitation, merchant acquiring, "
+            "embedded payments, payment operations, ISV payments"
+        ),
+        "sardine": (
+            "fraud prevention, device intelligence, behavior biometrics, "
+            "AML, KYC, real-time risk signals, compliance automation"
+        ),
+        "highnote": (
+            "modern card issuing, embedded finance, program management, "
+            "virtual and physical cards, spend controls, BIN sponsorship"
+        ),
+        "cross river": (
+            "banking-as-a-service, API banking, fintech lending, "
+            "ACH, RTP, card issuing, regulatory compliance for fintechs"
+        ),
+        "orum": (
+            "instant money movement, real-time payments, ACH optimization, "
+            "payment routing intelligence, same-day settlement"
+        ),
+        "argyle": (
+            "employment data, payroll connectivity, income verification, "
+            "earned wage access, HRIS integrations, consumer-permissioned data"
+        ),
     }
 
     def _company_vocab(self, company: str) -> str:
