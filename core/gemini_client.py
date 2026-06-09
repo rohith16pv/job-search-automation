@@ -89,13 +89,16 @@ SCORING GUIDE (0-100):
 30-49  → Weak match: significant gaps or wrong level
 0-29   → Poor fit: skip
 
-TARGET LEVELS (only these are acceptable):
-IC2/PM: Product Manager, Product Manager Growth, Product Manager Platform, Technical PM
-IC3/Senior PM: Senior Product Manager, Senior PM, Sr. PM, Product Manager II, Product Manager 2, Senior Technical Product Manager
+TARGET LEVELS:
+Sweet spot (score 70–100): Senior PM, Sr PM, PM II/2/III/3, Technical PM, Product Manager, bare "PM" — any IC3-level PM variant
+Above level (cap at 65): Staff PM, Principal PM, Group PM, Lead PM, Product Lead — worth tracking in P1, not a hot lead
+Too junior (score ≤ 10): Associate PM, APM, Junior PM, Entry Level PM, Coordinator
+Too senior (score ≤ 10): Director, VP, SVP, EVP, Head of Product, CPO, Chief Product Officer
 
 HARD RULES — apply before anything else:
-- If title is Director / VP / Head of Product / Staff PM / Principal PM / Group PM → score ≤ 10 immediately (too senior)
-- If title is Associate PM / Junior PM / APM / Coordinator → score ≤ 10 immediately (too junior)
+- If title is Director / VP / SVP / EVP / Head of Product / CPO / Chief Product → score ≤ 10 immediately (too senior)
+- If title is Staff PM / Principal PM / Group PM / Lead PM / Product Lead → cap score at 65 (above target level)
+- If title is Associate PM / Junior PM / APM / Entry Level PM → score ≤ 10 immediately (too junior)
 - If title contains Engineering / Sales / Marketing / Design / Analyst (non-PM) → score ≤ 10 immediately
 - If no payments/fintech/financial services domain signal anywhere in JD → cap score at 45
 - If role is outside USA and not remote-friendly → cap score at 30

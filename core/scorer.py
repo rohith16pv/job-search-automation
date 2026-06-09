@@ -31,24 +31,48 @@ def _norm(text: str) -> str:
 
 
 def _score_title(title: str, cfg: dict) -> tuple[int, str, bool]:
-    """Returns (pts, note, is_blocked). Blocked titles must score 0 overall."""
+    """
+    Returns (pts, note, is_blocked).
+
+    Check order (important — earlier tiers take priority):
+      1. blockers    → 0 pts, hard reject
+      2. above_level → 14 pts, above target (Staff/Principal/Group/Lead)
+                       checked BEFORE perfect so bare "pm" in perfect
+                       doesn't accidentally match "Staff PM" at 20 pts
+      3. perfect     → 20 pts, exact target level
+      4. good        → 14 pts (reserved for future use)
+      5. partial     → 8 pts
+      6. no match    → 0 pts, treated as blocked
+    """
     t = _norm(title)
     ts = cfg["title_scoring"]
+
     for kw in ts.get("blockers", []):
         if kw in t:
             return 0, f"blocked: '{kw}'", True
+
+    # above_level must be checked before perfect — prevents short keywords like
+    # "pm" from matching "staff pm" / "principal pm" at full perfect score
+    for kw in ts.get("above_level", []):
+        if kw in t:
+            pts = int(cfg["weights"]["title_match"] * 0.70)
+            return pts, f"above level: '{kw}'", False
+
     for kw in ts.get("perfect", []):
         if kw in t:
             return cfg["weights"]["title_match"], f"perfect: '{kw}'", False
+
     for kw in ts.get("good", []):
         if kw in t:
             pts = int(cfg["weights"]["title_match"] * 0.70)
             return pts, f"good: '{kw}'", False
+
     for kw in ts.get("partial", []):
         if kw in t:
             pts = int(cfg["weights"]["title_match"] * 0.40)
             return pts, f"partial: '{kw}'", False
-    return 0, "no title match", True  # unrecognised title also treated as blocked
+
+    return 0, "no title match", True  # unrecognised title treated as blocked
 
 
 def _score_domain(text: str, cfg: dict) -> tuple[int, list[str]]:

@@ -6,51 +6,102 @@ weights:
   seniority_match: 15
   location: 5
 
-# Title keywords that score points (case-insensitive partial match on job title)
-# Target levels: IC2 (PM) through IC5 (Staff/Principal) — excludes Director/VP/C-suite
+# Title keywords — case-insensitive substring match on job title only (not description).
+# Check order in scorer.py: blockers → above_level → perfect → good → partial → no match (0).
+# above_level is intentionally checked before perfect so bare "pm" in perfect
+# does not accidentally score "Staff PM" or "Principal PM" at 20 pts.
 title_scoring:
-  perfect:        # 20 pts — Senior / Staff / Principal PM
-    - "staff product manager"
-    - "principal product manager"
-    - "group product manager"
-    - "senior product manager"
-    - "senior pm"
-    - "sr. product manager"
-    - "sr. pm"
-    - "product manager ii"
-    - "product manager 2"
-    - "product manager, senior"
-    - "senior technical product manager"
-    - "lead product manager"
-    - "product lead"
-  good:           # 14 pts — PM level (IC2) and Technical PM
-    - "technical product manager"
-    - "technical pm"
-    - "product manager, growth"
-    - "product manager, platform"
-    - "product manager"
-  blockers:       # 0 pts — auto-reject (wrong level or irrelevant)
+
+  blockers:       # 0 pts — hard reject, checked first
+    # Way too senior
+    - "chief product"           # CPO / Chief Product Officer
+    - "evp"                     # Executive VP
+    - "svp"                     # Senior VP
+    - "vp of product"
+    - "vp, product"
+    - "vp product"              # e.g. "VP Product Management"
+    - "vice president"
     - "director of product"
     - "director, product"
     - "product director"
     - "head of product"
-    - "vp of product"
-    - "vp, product"
+    # Too junior
     - "associate product manager"
     - "junior product manager"
-    - "apm "
+    - "apm"                     # Associate PM — no trailing space so "APM, Payments" is caught
+    - "entry level"
+    # Non-PM roles — irrelevant
     - "product designer"
     - "product design"
-    - "vp of engineering"
-    - "vp of sales"
+    - "program manager"         # Technical Program Manager ≠ Product Manager
+    - "project manager"
+    - "product marketing"
+    - "marketing manager"
     - "software engineer"
     - "data engineer"
     - "data scientist"
     - "sales manager"
     - "account manager"
-    - "marketing manager"
-    - "program manager"
-    - "project manager"
+    - "vp of engineering"
+    - "vp of sales"
+    - "product analyst"
+    - "product specialist"
+    - "product operations"
+
+  above_level:    # 14 pts — above target; tracked in P1, won't auto-trigger P0 GDoc
+                  # MUST be before perfect in check order (see scorer.py note)
+    # Full forms
+    - "staff product manager"
+    - "principal product manager"
+    - "group product manager"
+    - "lead product manager"
+    - "product lead"
+    # Short forms — critical: these must be here before "pm" is matched in perfect
+    - "staff pm"
+    - "principal pm"
+    - "group pm"
+    - "lead pm"
+
+  perfect:        # 20 pts — exact target levels (Senior PM sweet spot)
+    # Senior PM — full forms with period variants
+    - "senior product manager"
+    - "senior pm"
+    - "sr. product manager"
+    - "sr. pm"
+    - "sr product manager"      # no-period variant
+    - "sr pm"                   # no-period variant
+    - "product manager, senior"
+    # Numbered levels
+    - "product manager ii"
+    - "product manager 2"
+    - "product manager iii"     # PM3 — at some companies this is Staff, but treat as perfect
+    - "product manager 3"
+    - "pm ii"                   # short-form numbered
+    - "pm 2"
+    - "pm iii"
+    - "pm 3"
+    # Technical PM — target level
+    - "senior technical product manager"
+    - "technical product manager"
+    - "technical pm"
+    # Specialised PM titles — all treated as perfect since they're the same IC level
+    - "product manager, growth"
+    - "product manager, platform"
+    - "product manager, payments"
+    - "product manager, fintech"
+    - "product manager, api"
+    - "product manager, infrastructure"
+    - "product manager, developer"
+    - "product manager, embedded"
+    - "product manager, risk"
+    - "product manager, compliance"
+    - "product manager, core"
+    - "product manager, data"
+    # Bare "pm" — catches "PM, Payments" / "PM - Embedded Finance" / "PM, Fintech"
+    # Safe here because above_level catches "Staff PM" / "Principal PM" BEFORE this runs
+    - "pm"
+    # Generic — catches any remaining "Product Manager, XYZ" pattern not listed above
+    - "product manager"
 
 # Domain keywords (fintech/payments focus) — each match adds points up to max
 domain_keywords:
