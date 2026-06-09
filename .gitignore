@@ -4,6 +4,22 @@
 .env.*.local
 credentials/
 secrets/
+config/google_service_account.json
+config/google_token.json
+config/google_oauth_credentials.json
+client_secret_*.json
+
+# Personal config (contains name, email, phone — use profile.example.yml as template)
+config/profile.yml
+
+# Resume markdown fallback (contains real personal contact info)
+config/cv.md
+
+# macOS Finder artefact (colon in filename — same file as google_service_account.json)
+config:google_service_account.json
+
+# Claude local settings (may contain personal paths or URLs)
+.claude/settings.local.json
 
 # Docker
 docker-compose.override.yml
@@ -25,7 +41,9 @@ Thumbs.db
 
 # Generated data (keep templates)
 data/*.jsonl
+data/*.json
 data/*.tsv
+data/tailored/
 output/
 *.json.backup
 

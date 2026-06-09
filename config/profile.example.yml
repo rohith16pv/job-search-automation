@@ -1,0 +1,84 @@
+# Job Search Automation — Candidate Profile
+# Copy this file to config/profile.yml and fill in your details.
+# profile.yml is gitignored — this example file is safe to commit.
+
+candidate:
+  full_name: "Your Full Name"
+  email: "you@example.com"
+  phone: "+1-000-000-0000"
+  location: "City, State"
+  timezone: "America/Los_Angeles"
+
+career:
+  current_title: "Senior Product Manager"
+  years_experience: 8
+  industry_focus: "Payments, Fintech, Money Movement"
+
+targeting:
+  # Roles you want to apply for
+  target_roles:
+    - "Senior Product Manager"
+    - "Senior PM"
+    - "Sr. Product Manager"
+    - "Product Manager II"
+    - "Technical Product Manager"
+    - "Staff Product Manager"
+
+  # Geographic preferences
+  locations:
+    - "San Francisco"
+    - "New York"
+    - "Remote - US"
+
+  # Minimum acceptable seniority level
+  min_seniority: "PM2"  # PM1, PM2, Staff, Director
+
+  # Domain keywords — must appear in JD for a strong score
+  domain_keywords:
+    - "payments"
+    - "fintech"
+    - "settlement"
+    - "ACH"
+    - "RTP"
+    - "embedded finance"
+    - "money movement"
+
+  # Nice to have (scoring boost)
+  nice_to_have_keywords:
+    - "API"
+    - "infrastructure"
+    - "B2B"
+    - "compliance"
+    - "risk"
+
+  # Deal breakers
+  blockers:
+    - "on-site only"
+    - "pre-Series A"
+
+compensation:
+  target_base_min: 200000
+  target_base_max: 300000
+  target_equity_vest_years: 4
+  target_bonus_pct: 15
+
+resume:
+  sections:
+    - "Summary"
+    - "Experience"
+    - "Projects"
+    - "Education"
+    - "Skills"
+
+  key_achievements:
+    - "Your top achievement #1"
+    - "Your top achievement #2"
+
+research:
+  target_companies:
+    - "Stripe"
+    - "Adyen"
+    - "Plaid"
+
+  avoided_companies:
+    - "Company you don't want to work at"

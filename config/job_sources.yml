@@ -1,0 +1,170 @@
+# Company slugs for each ATS.
+# Add or remove companies here without touching Python code.
+
+greenhouse:
+  # Payments / Fintech
+  - stripe
+  - plaid
+  - brex
+  - affirm
+  - marqeta
+  - chime
+  - checkoutcom
+  - payoneer
+  - nuvei
+  - spreedly
+  - lithic
+  - parafin
+  - pinwheel
+  - moov
+  - lyft
+  - airbnb
+  - doordashusa
+  - instacart
+  - nubank
+  - betterment
+  - upgrade
+  - coinbase
+  - bitgo
+  - flywire2
+  - synctera
+  - treasuryprime
+  - billcom
+  - databricks
+  - scaleai
+  - uberfreight
+  # Commerce / SaaS
+  - toasttab
+  - shopify
+  - rippling
+  - gusto
+  - benchling
+  - lattice
+  - checkr
+  - robinhood
+
+lever:
+  # Payments / Fintech
+  - adyen
+  - block
+  - square
+  - robinhood
+  - sofi
+  - ramp
+  - modern-treasury
+  - mercury
+  - column
+  - unit
+  - greenlight
+  - payitoff
+  - sila
+  - klarna
+  - revolut
+  - plaid
+  - nium
+  - currencycloud
+  - dwolla
+  - narmi
+  - anchorage
+  - coupa
+  - spreedly
+  # Tech / SaaS
+  - brex
+  - stripe
+  - vercel
+  - stytch
+
+ashby:
+  # Fintech / Payments
+  - ramp
+  - modern-treasury
+  - mercury
+  - column
+  - unit
+  - lithic
+  - parafin
+  - dave
+  - Acorns
+  - airwallex
+  - checkout.com
+  - slope
+  # Tech
+  - arc
+  - vercel
+  - stytch
+  - linear
+  - retool
+  - anthropic
+  - openai
+
+smartrecruiters:
+  # Larger fintech / enterprise
+  - paypal
+  - westernunion
+  - moneygram
+  - remitly
+  - wise
+  - nerdwallet
+  - intuit
+  - intuit2
+
+workday:
+  # Enterprise / big tech — each entry is a search URL
+  - name: "PayPal"
+    url: "https://wd5.myworkday.com/paypal/d/jobs"
+    keyword: "product manager"
+  - name: "Fiserv"
+    url: "https://wd3.myworkday.com/fiserv/d/jobs"
+    keyword: "product manager"
+  - name: "FIS"
+    url: "https://wd5.myworkday.com/fis/d/jobs"
+    keyword: "product manager"
+  - name: "Mastercard"
+    url: "https://mastercard.wd1.myworkday.com/merch/d/jobs"
+    keyword: "product manager"
+  - name: "Visa"
+    url: "https://jobs.smartrecruiters.com/Visa"
+    keyword: "product manager"
+  - name: "Capital One"
+    url: "https://capitalone.wd12.myworkdayjobs.com/Capital_One"
+    keyword: "product manager"
+  - name: "Fidelity"
+    url: "https://fmr.wd1.myworkdayjobs.com/FidelityCareers"
+    keyword: "product manager"
+  - name: "MX Technologies"
+    url: "https://mx.wd1.myworkdayjobs.com/EXT-MX"
+    keyword: "product manager"
+
+linkedin:
+  queries:
+    - "Senior Product Manager payments"
+    - "Staff Product Manager fintech"
+    - "Director of Product payments"
+    - "Head of Product fintech"
+    - "Senior PM embedded finance"
+    - "Principal Product Manager payments"
+    - "Senior Product Manager money movement"
+    - "Senior Product Manager financial services"
+  location: "United States"
+  date_posted: "past-24h"  # past-24h | past-week | past-month
+
+indeed:
+  queries:
+    - "Senior Product Manager payments"
+    - "Staff Product Manager fintech"
+    - "Director Product Manager payments"
+    - "Senior PM financial services"
+  location: "United States"
+  radius: "100"
+  date_posted: "1"  # days
+
+wellfound:
+  queries:
+    - "product manager payments"
+    - "product manager fintech"
+    - "senior pm fintech"
+  stage:
+    - "Series B"
+    - "Series C"
+    - "Series D"
+    - "Public"

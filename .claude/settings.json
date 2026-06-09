@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "mcp__5f494bd1-beb8-41dd-bf63-516505c6cfd5__notion-fetch",
+      "mcp__5f494bd1-beb8-41dd-bf63-516505c6cfd5__notion-query-database-view",
+      "mcp__Claude_in_Chrome__find",
+      "mcp__ccd_session__mark_chapter"
+    ]
+  }
+}
