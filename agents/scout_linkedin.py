@@ -46,30 +46,29 @@ def scout_linkedin() -> list[Job]:
         )
         try:
             run_input = {
-                "searchUrl": search_url,
-                "maxItems": 50,
-                "proxy": {"useApifyProxy": True},
+                "urls": [search_url],
+                "count": 50,
+                "scrapeCompany": False,
             }
-            run = client.actor("hKByXkMQaC5Qt9UMi").call(run_input=run_input)
+            run = client.actor("hKByXkMQaC5Qt9UMN").call(run_input=run_input)
             dataset_id = run.get("defaultDatasetId", "")
             if not dataset_id:
                 continue
             for item in client.dataset(dataset_id).iterate_items():
-                title = item.get("title", "")
-                job_url = item.get("jobUrl", item.get("url", ""))
+                job_url = item.get("link", item.get("applyUrl", ""))
                 if not job_url:
                     continue
                 all_jobs.append(Job(
                     id=make_job_id(job_url),
-                    title=title,
-                    company=item.get("company", ""),
+                    title=item.get("title", ""),
+                    company=item.get("companyName", ""),
                     url=job_url,
-                    description=item.get("description", ""),
+                    description=item.get("descriptionText", item.get("descriptionHtml", "")),
                     location=item.get("location", ""),
                     source="linkedin",
-                    posted_date=item.get("publishedAt", ""),
-                    salary_min=item.get("salaryMin", 0) or 0,
-                    salary_max=item.get("salaryMax", 0) or 0,
+                    posted_date=item.get("postedAt", ""),
+                    salary_min=0,
+                    salary_max=0,
                 ))
         except Exception as e:
             print(f"  [linkedin] query '{query}': {e}")

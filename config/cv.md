@@ -8,7 +8,7 @@ San Francisco Bay Area, CA · +1-650-664-8887 · pv.rohith96@gmail.com
 
 ## Summary
 
-Senior Product Manager with 10+ years building and scaling payment systems and fintech platforms. Proven expertise in settlement infrastructure, regulatory compliance, and cross-border transactions. Led cross-functional teams (engineering, design, operations, legal) to deliver products that moved billions in value. Passionate about making money movement faster, cheaper, and more accessible.
+Senior Product Manager with 8+ years building and scaling payment systems and fintech platforms. Proven expertise in settlement infrastructure, regulatory compliance, and cross-border transactions. Led cross-functional teams (engineering, design, operations, legal) to deliver products that moved billions in value. Passionate about making money movement faster, cheaper, and more accessible.
 
 ---
 

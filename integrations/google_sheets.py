@@ -17,6 +17,7 @@ Columns (A–J):
 import asyncio
 import os
 from datetime import date
+from typing import Optional
 from agents.base import Job
 
 _SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -93,7 +94,7 @@ class SheetsClient:
             body={"values": [row]},
         ).execute()
 
-    def _find_row_by_url(self, service, sheet_name: str, job_url: str) -> int | None:
+    def _find_row_by_url(self, service, sheet_name: str, job_url: str) -> Optional[int]:
         """Return 1-based row index where column G matches job_url, or None."""
         result = service.spreadsheets().values().get(
             spreadsheetId=self._sheet_id,

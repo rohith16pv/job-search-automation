@@ -12,7 +12,7 @@ A fully automated daily job search pipeline built for **Senior PMs in Payments /
       └─ Greenhouse · Lever · Ashby · SmartRecruiters · Wellfound
          Workday · Google Careers · Amazon Jobs · Apple Jobs
          LinkedIn · Indeed (via Apify)
-  └─ Dedup + hard filters (USA only, posted ≤ 7 days)
+  └─ Dedup + hard filters (USA only, configurable recency window)
   └─ Groq AI scores each job (Llama 3.1 8B, two-pass)
   └─ Routes to Google Sheets
       ├─ P0 Hot Leads  (score ≥ 70)
@@ -41,9 +41,8 @@ A fully automated daily job search pipeline built for **Senior PMs in Payments /
 | Name | Rohith Purimetla Vinay |
 | Location | San Francisco Bay Area, CA |
 | Current Title | Senior Product Manager |
-| Experience | 10 years |
+| Experience | 8 years |
 | Industry | Payments, Fintech, Money Movement |
-| Compensation Target | $250K–$350K base |
 
 ### Target roles (scored as P0/P1)
 
@@ -65,20 +64,20 @@ A fully automated daily job search pipeline built for **Senior PMs in Payments /
 
 ### Companies being scouted
 
-**Greenhouse (38 companies)**
-Stripe · Plaid · Brex · Affirm · Marqeta · Chime · Checkout.com · Payoneer · Nuvei · Spreedly · Lithic · Parafin · Pinwheel · Moov · Lyft · Airbnb · DoorDash · Instacart · Nubank · Betterment · Upgrade · Coinbase · BitGo · Flywire · Synctera · Treasury Prime · Bill.com · Databricks · Scale AI · Uber Freight · Toast · Shopify · Rippling · Gusto · Benchling · Lattice · Checkr · Robinhood
+**Greenhouse (52 companies)**
+Stripe · Plaid · Brex · Affirm · Marqeta · Chime · Checkout.com · Payoneer · Nuvei · Spreedly · Lithic · Parafin · Pinwheel · Moov · Lyft · Airbnb · DoorDash · Instacart · Nubank · Betterment · Upgrade · Coinbase · BitGo · Flywire · Synctera · Treasury Prime · Bill.com · Databricks · Scale AI · Uber Freight · Finix · Highnote · Orum · Cross River Bank · Sardine · Ripple · Tipalti · Deel · Papaya Global · Rain · Argyle · Bitso · Banked · i2c · Toast · Shopify · Rippling · Gusto · Benchling · Lattice · Checkr · Robinhood
 
-**Lever (26 companies)**
-Adyen · Block · Square · Robinhood · SoFi · Ramp · Modern Treasury · Mercury · Column · Unit · Greenlight · PayItOff · Sila · Klarna · Revolut · Plaid · Nium · CurrencyCloud · Dwolla · Narmi · Anchorage · Coupa · Spreedly · Brex · Stripe · Vercel
+**Lever (27 companies)**
+Adyen · Block · Square · Robinhood · SoFi · Ramp · Modern Treasury · Mercury · Column · Unit · Greenlight · PayItOff · Sila · Klarna · Revolut · Plaid · Nium · CurrencyCloud · Dwolla · Narmi · Anchorage · Coupa · Spreedly · Brex · Stripe · Vercel · Stytch
 
-**Ashby (18 companies)**
-Ramp · Modern Treasury · Mercury · Column · Unit · Lithic · Parafin · Dave · Acorns · Airwallex · Checkout.com · Slope · Arc · Vercel · Stytch · Linear · Retool · Anthropic · OpenAI
+**Ashby (21 companies)**
+Astra · Payrails · Ramp · Modern Treasury · Mercury · Column · Unit · Lithic · Parafin · Dave · Acorns · Airwallex · Checkout.com · Slope · Arc · Vercel · Stytch · Linear · Retool · Anthropic · OpenAI
 
-**SmartRecruiters (7 companies)**
+**SmartRecruiters (8 companies)**
 PayPal · Western Union · MoneyGram · Remitly · Wise · NerdWallet · Intuit
 
-**Workday (8 companies)**
-PayPal · Fiserv · FIS · Mastercard · Visa · Capital One · Fidelity · MX Technologies
+**Workday (10 companies)**
+PayPal · Fiserv · FIS · Mastercard · Visa · Capital One · Fidelity · MX Technologies · JPMorgan Chase · Citi
 
 **Direct APIs**
 Google Careers · Amazon Jobs · Apple Jobs
@@ -111,6 +110,30 @@ Every P0 resume is tailored with company-specific vocabulary for 20+ companies:
 - 🔵 Blue = this bullet should move to position #1 for this JD (manual, 2 seconds)
 - **Bold** = key metric or JD-anchor term within each bullet
 - Skills section: heading bold only (`Domain:`, `Product:`, `Technical & AI:`)
+
+---
+
+## Scout health & sanity checks
+
+Every scan prints a per-source table so broken scouts are immediately visible:
+
+```
+  ┌─────────────────────────────┬────────┬────────┐
+  │ Source                      │  Jobs  │ Status │
+  ├─────────────────────────────┼────────┼────────┤
+  │ greenhouse                  │    193 │ OK     │
+  │ linkedin                    │    285 │ OK     │
+  │ indeed                      │    200 │ OK     │
+  │ wellfound                   │      0 │ WARN   │
+  ...
+  │ TOTAL                       │    850 │        │
+  └─────────────────────────────┴────────┴────────┘
+  ⚠  1 scout(s) returned 0 jobs — actor may be broken or misconfigured.
+```
+
+- **WARN** — scout ran but returned 0 jobs; actor ID or field mapping may be stale
+- **ERROR** — scout threw an exception; full error is printed inline
+- **Hard abort** — if total raw jobs < 10, the pipeline stops before scoring to avoid wasting Groq credits
 
 ---
 
@@ -263,7 +286,7 @@ core/
   gemini_client.py       Groq client: scoring + two-pass resume tailoring
   resume_tailor.py       Orchestrates GDoc creation from Groq replacements
   dedup.py               Job ID deduplication against seen_jobs.jsonl
-  filters.py             Hard filters: USA-only, posted ≤ 7 days
+  filters.py             Hard filters: USA-only, configurable recency window (default 20 days)
 integrations/
   google_docs.py         Read base resume · Copy + edit GDoc · Bold + highlight
   google_sheets.py       Append rows · Update GDoc URL in col H

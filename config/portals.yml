@@ -126,9 +126,6 @@ filters:
     max_employees: 50000
     allow_pre_series_a: false
 
-  # Minimum salary
-  min_salary: 250000
-
 # Scanning schedule (cron format)
 schedule:
   # Every Wednesday at 9 AM PT

@@ -36,11 +36,10 @@ def scout_indeed() -> list[Job]:
     for query in queries:
         try:
             run_input = {
-                "keyword": query,
-                "location": location,
-                "maxItems": 50,
-                "fromAge": int(date_posted),
-                "proxy": {"useApifyProxy": True},
+                "position": query,
+                "country": "US",
+                "maxItemsPerSearch": 50,
+                "saveOnlyUniqueItems": True,
             }
             run = client.actor("misceres/indeed-scraper").call(run_input=run_input)
             dataset_id = run.get("defaultDatasetId", "")

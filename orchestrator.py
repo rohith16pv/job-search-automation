@@ -172,6 +172,21 @@ def _banner(mode: str = "full") -> None:
 
 # ── Scouts ────────────────────────────────────────────────────────────────────
 
+_SCOUT_NAMES = [
+    "greenhouse", "lever", "ashby", "smartrecruiters",
+    "wellfound", "workday", "google_careers", "amazon_jobs", "apple_jobs",
+    "linkedin", "indeed",
+]
+
+# Sources that historically return 0 on normal days are expected-zero; all others
+# should return >0 or we surface a loud warning.
+_EXPECTED_ZERO_OK = set()  # none — every source should occasionally find something
+
+# If total raw jobs across all sources is below this, something is systemically
+# broken and we abort rather than waste Groq credits scoring nothing.
+_MIN_RAW_JOBS = 10
+
+
 async def _run_scouts(session: aiohttp.ClientSession) -> list[Job]:
     print("\n[scouts] Firing all 11 scouts in parallel...")
     session_scouts = [
@@ -190,15 +205,52 @@ async def _run_scouts(session: aiohttp.ClientSession) -> list[Job]:
         asyncio.to_thread(scout_indeed),
     ]
     results = await asyncio.gather(*session_scouts, *thread_scouts, return_exceptions=True)
+
     all_jobs: list[Job] = []
     errors = 0
-    for r in results:
-        if isinstance(r, list):
-            all_jobs.extend(r)
-        elif isinstance(r, Exception):
-            print(f"  Scout error: {r}")
+    warnings = 0
+
+    print("\n  ┌─────────────────────────────┬────────┬────────┐")
+    print("  │ Source                      │  Jobs  │ Status │")
+    print("  ├─────────────────────────────┼────────┼────────┤")
+
+    for name, r in zip(_SCOUT_NAMES, results):
+        if isinstance(r, Exception):
+            status = "ERROR "
+            count = 0
             errors += 1
-    print(f"  Raw: {len(all_jobs)} jobs ({errors} scouts errored)")
+            print(f"  │ {name:<27} │ {'—':>6} │ {status} │")
+            print(f"  │   ↳ {str(r)[:65]}")
+        elif isinstance(r, list):
+            count = len(r)
+            all_jobs.extend(r)
+            if count == 0 and name not in _EXPECTED_ZERO_OK:
+                status = "WARN  "
+                warnings += 1
+            else:
+                status = "OK    "
+            print(f"  │ {name:<27} │ {count:>6} │ {status} │")
+        else:
+            status = "ERROR "
+            errors += 1
+            print(f"  │ {name:<27} │ {'—':>6} │ {status} │")
+
+    print("  ├─────────────────────────────┼────────┼────────┤")
+    print(f"  │ {'TOTAL':<27} │ {len(all_jobs):>6} │        │")
+    print("  └─────────────────────────────┴────────┴────────┘")
+
+    if errors:
+        print(f"\n  ⚠  {errors} scout(s) threw exceptions — check logs above.")
+    if warnings:
+        print(f"  ⚠  {warnings} scout(s) returned 0 jobs — actor may be broken or misconfigured.")
+
+    if len(all_jobs) < _MIN_RAW_JOBS:
+        raise RuntimeError(
+            f"Sanity check failed: only {len(all_jobs)} raw jobs found across all sources "
+            f"(threshold: {_MIN_RAW_JOBS}). Aborting before scoring to avoid wasting API credits. "
+            "Check scout errors above."
+        )
+
     return all_jobs
 
 
@@ -222,7 +274,7 @@ async def run_scan_assess() -> None:
     print("\n[3/4] Dedup + filter + score...")
     unique = dedup_jobs(raw_jobs, dry_run=False)
     print(f"  {len(unique)} unique (dropped {len(raw_jobs) - len(unique)} dupes)")
-    filtered, fstats = apply_hard_filters(unique, max_days=7)
+    filtered, fstats = apply_hard_filters(unique, max_days=20)
     print(f"  Hard filter: -{fstats['non_usa']} non-USA, -{fstats['stale']} stale → {fstats['kept']} remain")
     scored: list[Job] = await score_jobs_batch(filtered, resume_text)
     scored.sort(key=lambda j: j.score, reverse=True)
@@ -380,7 +432,7 @@ async def run() -> None:
     print("\n[3/6] Dedup + filter...")
     unique = dedup_jobs(raw_jobs, dry_run=DRY_RUN)
     print(f"  {len(unique)} unique (dropped {len(raw_jobs) - len(unique)} dupes)")
-    filtered, fstats = apply_hard_filters(unique, max_days=7)
+    filtered, fstats = apply_hard_filters(unique, max_days=20)
     dropped = fstats["non_usa"] + fstats["stale"]
     if dropped:
         print(f"  Hard filter: -{fstats['non_usa']} non-USA, -{fstats['stale']} stale → {fstats['kept']} remain")
