@@ -426,7 +426,7 @@ def _highlight_changed_requests(body_content: list, replacements: dict) -> list:
 
 def _reorder_highlight_requests(body_content: list, reorder: dict) -> list:
     """
-    Apply light blue highlight to the bullet Groq recommends moving to position #1.
+    Apply light blue highlight to the bullet Claude recommends moving to position #1.
     This is purely advisory — the user manually moves it in the doc.
     """
     if not reorder or not reorder.get("bullet_fragment"):

@@ -6,13 +6,7 @@ import asyncio
 import os
 import yaml
 import aiohttp
-from .base import Job, make_job_id
-
-_PM_TITLE_SIGNALS = [
-    "product manager", "product lead", "head of product",
-    "director of product", "vp of product", "group product manager",
-    "principal product", "staff product",
-]
+from .base import Job, make_job_id, is_pm_title
 
 _BASE = "https://api.smartrecruiters.com/v1/companies"
 
@@ -21,10 +15,6 @@ def _load_companies() -> list[str]:
     cfg_path = os.path.join(os.path.dirname(__file__), "..", "config", "job_sources.yml")
     with open(cfg_path) as f:
         return yaml.safe_load(f).get("smartrecruiters", [])
-
-
-def _is_pm_title(title: str) -> bool:
-    return any(sig in title.lower() for sig in _PM_TITLE_SIGNALS)
 
 
 async def _fetch_company(session: aiohttp.ClientSession, company: str) -> list[Job]:
@@ -39,7 +29,7 @@ async def _fetch_company(session: aiohttp.ClientSession, company: str) -> list[J
 
         for p in data.get("content", []):
             title = p.get("name", "")
-            if not _is_pm_title(title):
+            if not is_pm_title(title):
                 continue
             loc = p.get("location", {})
             location_str = ", ".join(filter(None, [loc.get("city"), loc.get("region"), loc.get("country")]))

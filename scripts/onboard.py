@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 _ENV  = _ROOT / ".env"
+sys.path.insert(0, str(_ROOT))
 
 if _ENV.exists():
     from dotenv import load_dotenv
@@ -55,10 +56,11 @@ def env(key: str) -> str:
 
 section("1 / 7   Environment Variables (.env)")
 
-check("GROQ_API_KEY",
-      bool(env("GROQ_API_KEY")),
-      "Groq configured (free AI scoring + resume tailoring)",
-      "Missing — get a free key at https://console.groq.com/keys  →  add GROQ_API_KEY=... to .env")
+import shutil as _shutil
+check("claude CLI",
+      _shutil.which("claude") is not None,
+      "Claude CLI found (AI scoring + resume tailoring on your Claude subscription)",
+      "Missing — install Claude Code (https://claude.com/claude-code), then run `claude` once to log in")
 
 check("RESUME_GDOC_ID",
       bool(env("RESUME_GDOC_ID")),
@@ -193,28 +195,22 @@ ok, note = _test_sheets()
 check("Google Sheets connected", ok, note, note)
 
 
-# ── 5. Groq AI ────────────────────────────────────────────────────────────────
+# ── 5. Claude AI ──────────────────────────────────────────────────────────────
 
-section("5 / 7   Groq AI (scoring + resume tailoring)")
+section("5 / 7   Claude AI (scoring + resume tailoring)")
 
-def _test_groq():
+def _test_claude():
     try:
-        from groq import Groq
-        client = Groq(api_key=env("GROQ_API_KEY"))
-        r = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": "Reply with just: ok"}],
-            max_tokens=5,
-        )
-        reply = r.choices[0].message.content or ""
-        return True, f"Model responding: '{reply.strip()}'"
-    except ImportError:
-        return False, "groq package not installed — run: pip install groq"
+        from core.claude_client import _claude_call, is_claude_available, CLAUDE_MODEL
+        if not is_claude_available():
+            return False, "claude CLI not on PATH — install Claude Code, then run `claude` to log in"
+        r = _claude_call("Return only valid JSON.", 'Reply with exactly: {"status": "OK"}', max_retries=1)
+        return True, f"Model responding ({CLAUDE_MODEL}): {r}"
     except Exception as e:
-        return False, str(e)
+        return False, f"{e} — if auth error, run `claude` in a terminal and log in"
 
-ok, note = _test_groq()
-check("Groq / Llama 3.1 8B Instant", ok, note, note)
+ok, note = _test_claude()
+check("Claude (subscription via claude CLI)", ok, note, note)
 
 
 # ── 6. Apify ─────────────────────────────────────────────────────────────────

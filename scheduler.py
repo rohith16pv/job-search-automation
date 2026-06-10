@@ -21,7 +21,15 @@ import schedule
 
 def _run_job():
     print(f"\n[scheduler] Triggering run at {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    asyncio.run(_import_and_run())
+    try:
+        asyncio.run(_import_and_run())
+    except Exception as e:
+        # Keep the daemon alive for tomorrow's run, but announce the failure loudly.
+        print("\n" + "!" * 60)
+        print(f"  [scheduler] RUN FAILED at {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        print(f"  {e}")
+        print("  Fix the issue above — the scheduler will try again at the next slot.")
+        print("!" * 60)
 
 
 async def _import_and_run():
@@ -41,8 +49,23 @@ def main():
 
     schedule.every().day.at(run_time).do(_run_job)
 
+    # Catch-up: if the laptop was asleep/off at the scheduled time, the daily
+    # job silently misses. Check the last successful scan on startup and every
+    # tick — run immediately whenever we're more than 26h behind, so a missed
+    # 9am can never cost a day of postings (source windows are 7 days wide).
+    def _catch_up_if_behind():
+        from core.health import hours_since_last_run
+        gap = hours_since_last_run()
+        if gap > 26:
+            label = f"{gap:.0f}h" if gap != float("inf") else "never"
+            print(f"[scheduler] Last successful scan: {label} ago — running catch-up scan now")
+            _run_job()
+
+    _catch_up_if_behind()
+
     while True:
         schedule.run_pending()
+        _catch_up_if_behind()
         time.sleep(30)
 
 

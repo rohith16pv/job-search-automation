@@ -71,5 +71,9 @@ async def scout_wellfound(session: aiohttp.ClientSession) -> list[Job]:
         if isinstance(r, list):
             all_jobs.extend(r)
 
-    print(f"  [wellfound] {len(all_jobs)} PM jobs")
+    if all_jobs:
+        print(f"  [wellfound] {len(all_jobs)} PM jobs")
+    else:
+        print("  [wellfound] 0 PM jobs — Wellfound blocks plain-HTTP scraping (anti-bot); "
+              "startup roles are covered by LinkedIn queries and the ATS scouts")
     return all_jobs

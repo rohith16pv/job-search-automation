@@ -1,14 +1,14 @@
-Run Stage 2b: create tailored GDoc resumes for all P1 backlog jobs (score 50–69) that don't yet have one, then update column H in "P1 Jobs" with each GDoc URL.
+Run Stage 2b: create tailored GDoc resumes for all P1 backlog jobs (score 50–69) that don't yet have one, then update the Resume GDoc column (K), ATS Post-Mod Score (G), and Status in "P1 Jobs".
 
 ## What this does
 1. Reads `data/jobs_store.json` — the persistent store across all past scans
 2. Filters to P1 jobs (score 50–69) with no GDoc URL yet (skips already-done ones)
 3. For each pending P1 job:
-   - Calls Groq (two-pass) to generate surgical text replacements tailored to that company + JD
+   - Calls Claude (two-pass) to generate surgical text replacements tailored to that company + JD
    - Copies the base resume Google Doc (preserving fonts and layout)
    - Applies replacements, bolds key metrics, highlights changes yellow, flags reorder suggestion blue
    - Writes GDoc URL back to the store immediately (crash-safe)
-4. Updates column H in "P1 Jobs" for each job with the new GDoc URL
+4. Updates Resume GDoc (col K), ATS Post-Mod Score (col G), and Status in "P1 Jobs" for each job
 
 ## Steps
 1. `cd /Users/rohith/Downloads/Github/job-search-automation`
@@ -18,11 +18,18 @@ Run Stage 2b: create tailored GDoc resumes for all P1 backlog jobs (score 50–6
    - How many P1 jobs were pending vs already done
    - How many GDocs were created this run
    - List each: Company — Role [Score] → GDoc URL
-   - Confirm Sheets column H was updated
+   - Confirm the Resume GDoc and ATS Post-Mod Score columns were updated
 
 ## Prerequisites
 - Run `/job-auto-scan` first to populate the store
 - Google OAuth token must be valid (run `python3 scripts/authorize_google.py` if expired)
+
+## Error reporting
+If ANY error, warning, or issue appears in the output (aborted run, scout failures, dropped tailoring
+swaps, GDoc/Sheets write errors, auth problems, anchor/keyword warnings), highlight it prominently in
+the chat in a dedicated "⚠ Issues" section of your summary — quote the exact error line and say what
+it means and what the user should do. Never bury an error mid-summary or omit it because the rest of
+the run succeeded. If the run aborted, lead with that.
 
 ## Notes
 - P1 jobs are moderate fits (50–69). Resumes are still fully tailored — same quality as P0.

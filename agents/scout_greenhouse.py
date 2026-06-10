@@ -7,13 +7,7 @@ import os
 from typing import Optional
 import yaml
 import aiohttp
-from .base import Job, make_job_id
-
-_PM_TITLE_SIGNALS = [
-    "product manager", "product lead", "head of product",
-    "director of product", "vp of product", "group product manager",
-    "principal product", "staff product",
-]
+from .base import Job, make_job_id, is_pm_title
 
 _BASE = "https://boards-api.greenhouse.io/v1/boards"
 
@@ -22,11 +16,6 @@ def _load_companies() -> list[str]:
     cfg_path = os.path.join(os.path.dirname(__file__), "..", "config", "job_sources.yml")
     with open(cfg_path) as f:
         return yaml.safe_load(f).get("greenhouse", [])
-
-
-def _is_pm_title(title: str) -> bool:
-    t = title.lower()
-    return any(sig in t for sig in _PM_TITLE_SIGNALS)
 
 
 async def _fetch_jobs(session: aiohttp.ClientSession, company: str) -> list[Job]:
@@ -40,7 +29,7 @@ async def _fetch_jobs(session: aiohttp.ClientSession, company: str) -> list[Job]
 
         candidate_ids = [
             j["id"] for j in data.get("jobs", [])
-            if _is_pm_title(j.get("title", ""))
+            if is_pm_title(j.get("title", ""))
         ]
 
         # Fetch descriptions in parallel (up to 5 at a time)

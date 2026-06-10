@@ -1,18 +1,14 @@
 """
-Ashby ATS scout — uses the Ashby public discovery feed.
-No authentication required.
+Ashby ATS scout — uses the public posting API (GET, no authentication):
+  https://api.ashbyhq.com/posting-api/job-board/{company}
 """
 import asyncio
 import os
 import yaml
 import aiohttp
-from .base import Job, make_job_id
+from .base import Job, make_job_id, is_pm_title
 
-_PM_TITLE_SIGNALS = [
-    "product manager", "product lead", "head of product",
-    "director of product", "vp of product", "group product manager",
-    "principal product", "staff product",
-]
+_UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 
 
 def _load_companies() -> list[str]:
@@ -21,36 +17,30 @@ def _load_companies() -> list[str]:
         return yaml.safe_load(f).get("ashby", [])
 
 
-def _is_pm_title(title: str) -> bool:
-    return any(sig in title.lower() for sig in _PM_TITLE_SIGNALS)
-
-
 async def _fetch_company(session: aiohttp.ClientSession, company: str) -> list[Job]:
     jobs = []
     try:
-        url = (
-            "https://jobs.ashbyhq.com/api/non-user-facing/job-board/discovery-feed"
-            f"?organizationHostedJobsPageName={company}"
-        )
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=12)) as resp:
+        url = f"https://api.ashbyhq.com/posting-api/job-board/{company}"
+        async with session.get(url, headers=_UA, timeout=aiohttp.ClientTimeout(total=15)) as resp:
             if resp.status != 200:
                 return []
             data = await resp.json(content_type=None)
 
-        for p in data.get("jobPostings", []):
-            title = p.get("title", "")
-            if not _is_pm_title(title):
+        for p in data.get("jobs", []):
+            title = p.get("title", "").strip()
+            if not p.get("isListed", True) or not is_pm_title(title):
                 continue
-            job_id = p.get("id", "")
-            job_url = f"https://jobs.ashbyhq.com/{company}/{job_id}"
-            location = p.get("locationName", "") or p.get("employmentType", "")
-            published = p.get("publishedDate", "")
+            job_url = p.get("jobUrl") or f"https://jobs.ashbyhq.com/{company}/{p.get('id', '')}"
+            location = p.get("location", "") or ""
+            if p.get("isRemote") and "remote" not in location.lower():
+                location = f"Remote — {location}" if location else "Remote"
+            published = p.get("publishedAt", "") or ""
             jobs.append(Job(
                 id=make_job_id(job_url),
                 title=title,
-                company=data.get("organization", {}).get("name", company.title()),
+                company=company.replace("-", " ").title(),
                 url=job_url,
-                description=p.get("descriptionPlain", ""),
+                description=p.get("descriptionPlain", "") or "",
                 location=location,
                 source="ashby",
                 posted_date=published[:10] if published else "",

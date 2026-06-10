@@ -13,18 +13,19 @@ A fully automated daily job search pipeline built for **Senior PMs in Payments /
          Workday · Google Careers · Amazon Jobs · Apple Jobs
          LinkedIn · Indeed (via Apify)
   └─ Dedup + hard filters (USA only, configurable recency window)
-  └─ Groq AI scores each job (Llama 3.1 8B, two-pass)
+  └─ Claude AI scores each job (your Claude subscription, two-pass)
   └─ Routes to Google Sheets
       ├─ P0 Hot Leads  (score ≥ 70)
-      └─ P1 Jobs       (score 50–69)
+      ├─ P1 Jobs       (score 50–69)
+      └─ P2 Review     (score 40–49, borderline)
   └─ Saves data/jobs_store.json  ← persistent, never overwritten
 
 /job-auto-resume-p0
   └─ Reads jobs_store.json → filters P0 jobs without a GDoc yet
-  └─ For each: Groq generates surgical replacements (1 summary + 4 bullets)
+  └─ For each: Claude generates surgical replacements (1 summary + 4 bullets)
   └─ Copies base resume GDoc (fonts + layout preserved)
   └─ Applies replaceAllText, bolds metrics, yellow highlights, blue reorder hint
-  └─ Updates column H in "P0 Hot Leads" with GDoc URL
+  └─ Updates Resume GDoc (col K), ATS Post-Mod Score (col G), Status in "P0 Hot Leads"
 
 /job-auto-resume-p1
   └─ Same as above but for P1 jobs → updates "P1 Jobs" tab
@@ -133,7 +134,7 @@ Every scan prints a per-source table so broken scouts are immediately visible:
 
 - **WARN** — scout ran but returned 0 jobs; actor ID or field mapping may be stale
 - **ERROR** — scout threw an exception; full error is printed inline
-- **Hard abort** — if total raw jobs < 10, the pipeline stops before scoring to avoid wasting Groq credits
+- **Hard abort** — if total raw jobs < 10, the pipeline stops before scoring to avoid wasting Claude usage
 
 ---
 
@@ -157,7 +158,7 @@ This validates every integration and tells you exactly what to fix.
 
 | Credential | Where to get it | .env key |
 |---|---|---|
-| Groq API key | [console.groq.com/keys](https://console.groq.com/keys) — free | `GROQ_API_KEY` |
+| Claude Code login | [claude.com/claude-code](https://claude.com/claude-code) — uses your Claude subscription, run `claude` once to log in | _(none — no API key)_ |
 | Base resume Google Doc ID | From URL of your resume GDoc | `RESUME_GDOC_ID` |
 | Google Sheets ID | From URL of your tracking sheet | `GOOGLE_SHEETS_ID` |
 | Google Drive folder ID | Create a folder, share with service account | `GOOGLE_DRIVE_FOLDER_ID` |
@@ -228,16 +229,20 @@ Both `P0 Hot Leads` and `P1 Jobs` tabs share the same schema:
 
 | Col | Field | Notes |
 |---|---|---|
-| A | Date | When the job was scouted |
-| B | Company | |
-| C | Job Title | |
-| D | Score | 0–100 |
-| E | Location | |
-| F | Source | Which scout found it |
-| G | Job URL | Direct link to posting |
-| H | Resume GDoc | Filled by `/job-auto-resume-*` |
-| I | Salary | If listed in the posting |
-| J | Status | `New` → update manually as you progress |
+| A | Posted Date | When the role was posted (from the job board) |
+| B | Date Added | When the row was written to the sheet |
+| C | Company | |
+| D | Role | Job title |
+| E | Status | `New` → `Resume Ready` (auto) → update manually as you progress |
+| F | ATS Pre-Score | Fitment score 0–100 from the scoring pass |
+| G | ATS Post-Mod Score | JD keyword coverage % after resume tailoring |
+| H | Location | |
+| I | Portal Source | Which scout found it |
+| J | Job Link | Direct link to posting |
+| K | Resume GDoc | Filled by `/job-auto-resume-*` |
+| L | Notes | Salary (if listed) lands here; rest is yours |
+
+Tabs still on the old 10-column layout are migrated in place automatically on the next write.
 
 ---
 
@@ -261,7 +266,7 @@ Edit `config/profile.yml` — name, target roles, location preferences, compensa
 
 ### Add company vocabulary for tailoring
 
-Edit `core/gemini_client.py` → `_COMPANY_PROFILES` dict — add the company's known language so tailoring uses their exact terminology.
+Edit `core/claude_client.py` → `_COMPANY_PROFILES` dict — add the company's known language so tailoring uses their exact terminology.
 
 ---
 
@@ -282,14 +287,16 @@ agents/
   scout_indeed.py        }
   scout_wellfound.py     }
 core/
-  scorer.py              Keyword pre-score → Groq AI deep score
-  gemini_client.py       Groq client: scoring + two-pass resume tailoring
-  resume_tailor.py       Orchestrates GDoc creation from Groq replacements
+  health.py              Daily sanity checks: preflight, scout baselines, ATS slug audit
+  improve.py             Self-improvement: board auto-discovery, blocked-title log, weekly Claude review
+  scorer.py              Keyword pre-score → Claude AI deep score
+  claude_client.py       Claude client (claude CLI, subscription): scoring + two-pass resume tailoring
+  resume_tailor.py       Orchestrates GDoc creation from Claude replacements
   dedup.py               Job ID deduplication against seen_jobs.jsonl
   filters.py             Hard filters: USA-only, configurable recency window (default 20 days)
 integrations/
   google_docs.py         Read base resume · Copy + edit GDoc · Bold + highlight
-  google_sheets.py       Append rows · Update GDoc URL in col H
+  google_sheets.py       Append rows (A–L schema) · Update GDoc URL, post-mod score, status
   notion_client.py       Mirror P0/P1 to Notion databases (optional)
 config/
   profile.yml            Your name, targets, compensation

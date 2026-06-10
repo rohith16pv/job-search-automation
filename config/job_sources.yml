@@ -2,21 +2,21 @@
 # Add or remove companies here without touching Python code.
 
 greenhouse:
+  - alloy  # explored 2026-06-09
+  - melio  # auto-discovered 2026-06-09
+  # Relocated boards (slug audit 2026-06-09). Companies with no public board
+  # (shopify, rippling, tipalti, nuvei, moov, pinwheel, argyle, i2c, retool...)
+  # are covered by the LinkedIn/Indeed queries.
+  - toast
+  - lithic
+  - anthropic
   # Payments / Fintech
   - stripe
-  - plaid
   - brex
   - affirm
   - marqeta
   - chime
-  - checkoutcom
   - payoneer
-  - nuvei
-  - spreedly
-  - lithic
-  - parafin
-  - pinwheel
-  - moov
   - lyft
   - airbnb
   - doordashusa
@@ -26,79 +26,60 @@ greenhouse:
   - upgrade
   - coinbase
   - bitgo
-  - flywire2
-  - synctera
   - treasuryprime
   - billcom
   - databricks
   - scaleai
   - uberfreight
   # New additions — Payments Infrastructure
-  - finix
   - highnote
-  - orum
   - crossriverbank
-  - sardine
   - ripple
-  - tipalti
-  - deel
-  - papayaglobal
-  - rain
-  - argyle
   - bitso
-  - banked
-  - i2c
+  # Moved here from dead Lever boards (verified live 2026-06-09)
+  - adyen
+  - block
+  - sofi
+  - vercel
   # Commerce / SaaS
-  - toasttab
-  - shopify
-  - rippling
   - gusto
-  - benchling
   - lattice
   - checkr
   - robinhood
 
 lever:
-  # Payments / Fintech
-  - adyen
-  - block
-  - square
-  - robinhood
-  - sofi
-  - ramp
-  - modern-treasury
-  - mercury
-  - column
-  - unit
+  - finix  # relocated from greenhouse (audit 2026-06-09)
+  # Verified live boards (api.lever.co probe, 2026-06-09).
+  # Dead slugs removed — adyen/block/sofi/vercel moved to greenhouse,
+  # ramp/mercury/modern-treasury/column/unit/stytch already covered by ashby.
   - greenlight
-  - payitoff
   - sila
-  - klarna
-  - revolut
-  - plaid
   - nium
-  - currencycloud
-  - dwolla
-  - narmi
   - anchorage
   - coupa
   - spreedly
-  # Tech / SaaS
-  - brex
-  - stripe
-  - vercel
-  - stytch
+  - plaid
+  - dwolla
+  - narmi
 
 ashby:
+  - middesk  # explored 2026-06-09
+  # Relocated boards (slug audit 2026-06-09)
+  - plaid
+  - moderntreasury
+  - synctera
+  - orum
+  - sardine
+  - deel
+  - rain
+  - benchling
   # Fintech / Payments
   - astra
   - payrails
   - ramp
-  - modern-treasury
   - mercury
   - column
   - unit
-  - lithic
   - parafin
   - dave
   - Acorns
@@ -106,16 +87,14 @@ ashby:
   - checkout.com
   - slope
   # Tech
-  - arc
   - vercel
   - stytch
   - linear
-  - retool
-  - anthropic
   - openai
 
 smartrecruiters:
   # Larger fintech / enterprise
+  - Visa
   - paypal
   - westernunion
   - moneygram
@@ -126,60 +105,69 @@ smartrecruiters:
   - intuit2
 
 workday:
-  # Enterprise / big tech — each entry is a search URL
+  # Verified CXS API tenants (probe 2026-06-09). Each needs host/tenant/site.
+  # Dropped: MX (403 blocked), JPMorgan (uses Oracle HCM, not Workday — covered
+  # via LinkedIn queries), Visa (moved to smartrecruiters above).
   - name: "PayPal"
-    url: "https://wd5.myworkday.com/paypal/d/jobs"
+    host: "paypal.wd1.myworkdayjobs.com"
+    tenant: "paypal"
+    site: "jobs"
     keyword: "product manager"
   - name: "Fiserv"
-    url: "https://wd3.myworkday.com/fiserv/d/jobs"
+    host: "fiserv.wd5.myworkdayjobs.com"
+    tenant: "fiserv"
+    site: "EXT"
     keyword: "product manager"
   - name: "FIS"
-    url: "https://wd5.myworkday.com/fis/d/jobs"
-    keyword: "product manager"
+    host: "fis.wd5.myworkdayjobs.com"
+    tenant: "fis"
+    site: "SearchJobs"
+    keyword: "product manager payments"
   - name: "Mastercard"
-    url: "https://mastercard.wd1.myworkday.com/merch/d/jobs"
-    keyword: "product manager"
-  - name: "Visa"
-    url: "https://jobs.smartrecruiters.com/Visa"
-    keyword: "product manager"
+    host: "mastercard.wd1.myworkdayjobs.com"
+    tenant: "mastercard"
+    site: "CorporateCareers"
+    keyword: "product manager payments"
   - name: "Capital One"
-    url: "https://capitalone.wd12.myworkdayjobs.com/Capital_One"
-    keyword: "product manager"
+    host: "capitalone.wd12.myworkdayjobs.com"
+    tenant: "capitalone"
+    site: "Capital_One"
+    keyword: "product management payments"
   - name: "Fidelity"
-    url: "https://fmr.wd1.myworkdayjobs.com/FidelityCareers"
-    keyword: "product manager"
-  - name: "MX Technologies"
-    url: "https://mx.wd1.myworkdayjobs.com/EXT-MX"
-    keyword: "product manager"
-  - name: "JPMorgan Chase"
-    url: "https://jpmorgan.wd1.myworkdayjobs.com/JPMorgan"
+    host: "fmr.wd1.myworkdayjobs.com"
+    tenant: "fmr"
+    site: "FidelityCareers"
     keyword: "product manager payments"
   - name: "Citi"
-    url: "https://citi.wd5.myworkdayjobs.com/External_Career_Site"
-    keyword: "product manager"
+    host: "citi.wd5.myworkdayjobs.com"
+    tenant: "citi"
+    site: "2"
+    keyword: "product manager payments"
 
 linkedin:
   queries:
     - "Senior Product Manager payments"
     - "Staff Product Manager fintech"
-    - "Director of Product payments"
-    - "Head of Product fintech"
+    - "Product Manager payments"
+    - "Senior Product Manager fraud"
     - "Senior PM embedded finance"
-    - "Principal Product Manager payments"
+    - "Senior Product Manager risk"
     - "Senior Product Manager money movement"
     - "Senior Product Manager financial services"
+    - "Senior Product Manager billing"
+    - "Technical Product Manager fintech"
   location: "United States"
-  date_posted: "past-24h"  # past-24h | past-week | past-month
+  date_posted: "past-week"  # week window — a missed daily run no longer loses postings; dedup absorbs repeats
 
 indeed:
   queries:
     - "Senior Product Manager payments"
     - "Staff Product Manager fintech"
-    - "Director Product Manager payments"
+    - "Product Manager payments"
     - "Senior PM financial services"
   location: "United States"
   radius: "100"
-  date_posted: "1"  # days
+  date_posted: "7"  # days — survives missed daily runs; dedup absorbs repeats
 
 wellfound:
   queries:
