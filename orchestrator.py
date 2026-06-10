@@ -342,7 +342,7 @@ async def run_scan_assess() -> None:
     print("\n[3/4] Dedup + filter + score...")
     unique = dedup_jobs(raw_jobs)  # detection only — marked seen after writes succeed
     print(f"  {len(unique)} unique (dropped {len(raw_jobs) - len(unique)} dupes)")
-    filtered, fstats = apply_hard_filters(unique, max_days=20)
+    filtered, fstats = apply_hard_filters(unique, max_days=10)
     print(f"  Hard filter: -{fstats['non_usa']} non-USA, -{fstats['stale']} stale → {fstats['kept']} remain")
     limit_hit = False
     try:
@@ -560,7 +560,7 @@ async def run() -> None:
     print("\n[3/6] Dedup + filter...")
     unique = dedup_jobs(raw_jobs)  # detection only — marked seen after writes succeed
     print(f"  {len(unique)} unique (dropped {len(raw_jobs) - len(unique)} dupes)")
-    filtered, fstats = apply_hard_filters(unique, max_days=20)
+    filtered, fstats = apply_hard_filters(unique, max_days=10)
     dropped = fstats["non_usa"] + fstats["stale"]
     if dropped:
         print(f"  Hard filter: -{fstats['non_usa']} non-USA, -{fstats['stale']} stale → {fstats['kept']} remain")

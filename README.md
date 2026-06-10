@@ -293,7 +293,7 @@ core/
   claude_client.py       Claude client (claude CLI, subscription): scoring + two-pass resume tailoring
   resume_tailor.py       Orchestrates GDoc creation from Claude replacements
   dedup.py               Job ID deduplication against seen_jobs.jsonl
-  filters.py             Hard filters: USA-only, configurable recency window (default 20 days)
+  filters.py             Hard filters: USA-only, configurable recency window (default 10 days)
 integrations/
   google_docs.py         Read base resume · Copy + edit GDoc · Bold + highlight
   google_sheets.py       Append rows (A–L schema) · Update GDoc URL, post-mod score, status
