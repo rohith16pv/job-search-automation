@@ -2,14 +2,14 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from core.claude_client import _claude_call, is_claude_available, CLAUDE_MODEL
+from core.claude_client import _claude_call, is_claude_available, SCORING_MODEL, TAILORING_MODEL
 
 if not is_claude_available():
     print("ERROR: `claude` CLI not found on PATH.")
     print("Install Claude Code (https://claude.com/claude-code), then run `claude` once to log in.")
     raise SystemExit(1)
 
-print(f"Testing claude CLI with model: {CLAUDE_MODEL}")
+print(f"Testing claude CLI — scoring model: {SCORING_MODEL} | tailoring model: {TAILORING_MODEL}")
 
 try:
     result = _claude_call(

@@ -201,11 +201,11 @@ section("5 / 7   Claude AI (scoring + resume tailoring)")
 
 def _test_claude():
     try:
-        from core.claude_client import _claude_call, is_claude_available, CLAUDE_MODEL
+        from core.claude_client import _claude_call, is_claude_available, SCORING_MODEL
         if not is_claude_available():
             return False, "claude CLI not on PATH — install Claude Code, then run `claude` to log in"
         r = _claude_call("Return only valid JSON.", 'Reply with exactly: {"status": "OK"}', max_retries=1)
-        return True, f"Model responding ({CLAUDE_MODEL}): {r}"
+        return True, f"Model responding ({SCORING_MODEL}): {r}"
     except Exception as e:
         return False, f"{e} — if auth error, run `claude` in a terminal and log in"
 

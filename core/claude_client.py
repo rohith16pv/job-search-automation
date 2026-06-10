@@ -3,9 +3,14 @@ AI scoring client — uses Claude (via the `claude` CLI in headless mode) for jo
 evaluation and resume tailoring.
 
 Runs on your Claude subscription: the CLI uses the login from `claude` / Claude
-Code, so no API key or pay-per-token billing is needed. Override the model with
-CLAUDE_MODEL in .env (default: claude-opus-4-8; use claude-haiku-4-5 to conserve
-subscription limits on big scoring runs).
+Code, so no API key or pay-per-token billing is needed.
+
+Model usage is split by task:
+  - Scoring (high-volume, one call per candidate job, constrained JSON rubric)
+    runs on CLAUDE_SCORING_MODEL (default: claude-haiku-4-5, ~5x cheaper).
+  - Tailoring (quality-critical resume writing + review panel) runs on
+    CLAUDE_TAILORING_MODEL (default: claude-opus-4-8).
+  - Setting legacy CLAUDE_MODEL in .env forces ONE model for everything.
 
 Scoring prompt returns JSON with:
   score (0-100), breakdown, match_reasons, gaps, tailoring suggestions
@@ -22,7 +27,10 @@ import yaml
 
 _PROFILE_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "profile.yml")
 
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8")
+# Legacy single-model override: when CLAUDE_MODEL is set it wins for both tasks.
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "")
+SCORING_MODEL = CLAUDE_MODEL or os.environ.get("CLAUDE_SCORING_MODEL", "claude-haiku-4-5")
+TAILORING_MODEL = CLAUDE_MODEL or os.environ.get("CLAUDE_TAILORING_MODEL", "claude-opus-4-8")
 _CLI_TIMEOUT = 180  # seconds per call
 
 # Tailoring refinement loop: after the initial swaps, a review panel (ATS
@@ -98,11 +106,13 @@ def _clean_env() -> dict:
     return {k: v for k, v in os.environ.items() if not k.startswith("ANTHROPIC_")}
 
 
-def _claude_call(system_prompt: str, user_prompt: str, max_retries: int = 3) -> dict:
-    """One-shot Claude call via `claude -p`. Returns the parsed JSON object."""
+def _claude_call(system_prompt: str, user_prompt: str, max_retries: int = 3, model: str = "") -> dict:
+    """One-shot Claude call via `claude -p`. Returns the parsed JSON object.
+    Defaults to the cheap scoring model — quality-critical callers pass
+    model=TAILORING_MODEL explicitly."""
     cmd = [
         "claude", "-p",
-        "--model", CLAUDE_MODEL,
+        "--model", model or SCORING_MODEL,
         "--output-format", "json",
         "--system-prompt", system_prompt,
         "--tools", "",
@@ -677,6 +687,7 @@ Extract:
 
 Return JSON: {{"jd_signals": [{{"requirement": "...", "exact_jd_phrase": "...", "candidate_proof_point": "..."}}],
 "keywords": ["..."], "scale_signals": "...", "commercial_goal": {{"category": "...", "why": "..."}}}}""",
+                model=SCORING_MODEL,  # extraction only — cheap model
             )
             jd_signals = signals.get("jd_signals", [])
         except Exception:
@@ -707,6 +718,7 @@ Return JSON: {{"jd_signals": [{{"requirement": "...", "exact_jd_phrase": "...", 
         result = _claude_call(
             self._tailor_system_prompt(),
             self._tailor_prompt(job, resume_text) + signals_block,
+            model=TAILORING_MODEL,
         )
 
         # ── Validate: every "original" must be a verbatim substring, else the
@@ -724,6 +736,7 @@ Return JSON: {{"jd_signals": [{{"requirement": "...", "exact_jd_phrase": "...", 
             result = _claude_call(
                 self._tailor_system_prompt(),
                 self._tailor_prompt(job, resume_text) + signals_block + correction,
+                model=TAILORING_MODEL,
             )
             still_bad = _invalid_originals(result, resume_text)
             if still_bad:
@@ -753,6 +766,7 @@ Return JSON: {{"jd_signals": [{{"requirement": "...", "exact_jd_phrase": "...", 
                 review = _claude_call(
                     self._review_system_prompt(),
                     self._review_prompt(job, resume_text, result),
+                    model=TAILORING_MODEL,
                 )
             except Exception as e:
                 print(f"    [tailor] review round {round_i} failed ({str(e)[:100]}) — keeping current swaps")
@@ -810,6 +824,7 @@ Return JSON: {{"jd_signals": [{{"requirement": "...", "exact_jd_phrase": "...", 
                 revised = _claude_call(
                     self._tailor_system_prompt(),
                     self._tailor_prompt(job, resume_text) + signals_block + revision_block,
+                    model=TAILORING_MODEL,
                 )
             except Exception as e:
                 print(f"    [tailor] revision round {round_i} failed ({str(e)[:100]}) — keeping current swaps")
@@ -938,7 +953,7 @@ def _apply_result(job, result: dict) -> None:
         "location": result.get("location_fit", ""),
         "match_reasons": result.get("match_reasons", []),
         "gaps": result.get("gaps", []),
-        "source": f"claude/{CLAUDE_MODEL}",
+        "source": f"claude/{SCORING_MODEL}",
     }
     tailoring = result.get("tailoring") or {}
     if tailoring:

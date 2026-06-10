@@ -42,7 +42,7 @@ from agents.base import Job
 from core.dedup import dedup_jobs, mark_seen
 from core.filters import apply_hard_filters
 from core.scorer import score_jobs_batch
-from core.claude_client import require_claude, ClaudeUnavailableError, ClaudeUsageLimitError, CLAUDE_MODEL
+from core.claude_client import require_claude, ClaudeUnavailableError, ClaudeUsageLimitError, SCORING_MODEL, TAILORING_MODEL
 from core.resume_tailor import tailor_resume
 from core import health, improve
 from integrations.google_docs import read_resume_from_gdoc
@@ -227,7 +227,7 @@ def _banner(mode: str = "full") -> None:
     print("=" * 60)
     print(f"  Job Search Automation  [{labels.get(mode, mode)}]")
     print(f"  {ts}")
-    print(f"  Scoring: Claude ({CLAUDE_MODEL}, subscription via claude CLI)")
+    print(f"  Models: scoring {SCORING_MODEL} | tailoring {TAILORING_MODEL} (subscription via claude CLI)")
     print("=" * 60)
     require_claude()  # Claude is mandatory — fail here, before any scraping
 
