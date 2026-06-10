@@ -4,9 +4,28 @@ Requires APIFY_API_KEY in .env. Skipped gracefully if key is missing.
 All queries fire in parallel via ThreadPoolExecutor.
 """
 import os
+import re
 import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .base import Job, make_job_id
+
+# Stable numeric posting id embedded in LinkedIn job URLs, e.g.
+# /jobs/view/4012345678 or /jobs/view/senior-product-manager-at-acme-4012345678
+_JOB_VIEW_RE = re.compile(r"linkedin\.com/jobs/view/(?:[^/?#]*?-)?(\d{6,})/?(?:[?#]|$)")
+
+
+def _canonical_url(raw_url: str) -> str:
+    """Canonicalize a LinkedIn job URL so Job.id is stable across runs.
+
+    Raw URLs from the scraper carry per-scrape tracking params (refId,
+    trackingId, position, ...) which made md5(url) ids churn every run —
+    the same job got re-scored and re-tailored daily. Reduce to the stable
+    posting id; fall back to stripping the query string/fragment.
+    """
+    m = _JOB_VIEW_RE.search(raw_url)
+    if m:
+        return f"https://www.linkedin.com/jobs/view/{m.group(1)}"
+    return raw_url.split("#")[0].split("?")[0].rstrip("/")
 
 
 def _load_config() -> dict:
@@ -28,7 +47,16 @@ def _run_query(client, query: str, location: str, time_filter: str) -> list[Job]
         "count": 50,
         "scrapeCompany": False,
     }
-    run = client.actor("hKByXkMQaC5Qt9UMN").call(run_input=run_input)
+    # timeout_secs aborts a hung actor run server-side; wait_secs caps how long
+    # we block client-side — one stuck source must never stall the whole pipeline.
+    run = client.actor("hKByXkMQaC5Qt9UMN").call(
+        run_input=run_input, timeout_secs=300, wait_secs=330
+    )
+    status = (run or {}).get("status", "")
+    if status != "SUCCEEDED":
+        print(f"  [linkedin] WARNING: query '{query}' actor run ended "
+              f"'{status or 'UNKNOWN'}' (timeout 300s) — skipping this query")
+        return []
     dataset_id = run.get("defaultDatasetId", "")
     if not dataset_id:
         return []
@@ -37,6 +65,7 @@ def _run_query(client, query: str, location: str, time_filter: str) -> list[Job]
         job_url = item.get("link", item.get("applyUrl", ""))
         if not job_url:
             continue
+        job_url = _canonical_url(job_url)
         jobs.append(Job(
             id=make_job_id(job_url),
             title=item.get("title", ""),

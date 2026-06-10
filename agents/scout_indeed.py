@@ -4,9 +4,24 @@ Requires APIFY_API_KEY in .env. Skipped gracefully if key is missing.
 All queries fire in parallel via ThreadPoolExecutor.
 """
 import os
+import re
 import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, timedelta
 from .base import Job, make_job_id
+
+
+def _ago_to_iso(posted: str) -> str:
+    """Normalize Indeed's 'Just posted' / 'Today' / 'N days ago' to ISO."""
+    p = (posted or "").lower()
+    if not p:
+        return ""
+    if "just" in p or "today" in p:
+        return str(date.today())
+    m = re.search(r"(\d+)\+?\s*day", p)
+    if m:
+        return str(date.today() - timedelta(days=int(m.group(1))))
+    return posted
 
 
 def _load_config() -> dict:
@@ -24,7 +39,16 @@ def _run_query(api_key: str, query: str) -> list[Job]:
         "maxItemsPerSearch": 50,
         "saveOnlyUniqueItems": True,
     }
-    run = client.actor("misceres/indeed-scraper").call(run_input=run_input)
+    # timeout_secs aborts a hung actor run server-side; wait_secs caps how long
+    # we block client-side — one stuck source must never stall the whole pipeline.
+    run = client.actor("misceres/indeed-scraper").call(
+        run_input=run_input, timeout_secs=300, wait_secs=330
+    )
+    status = (run or {}).get("status", "")
+    if status != "SUCCEEDED":
+        print(f"  [indeed] WARNING: query '{query}' actor run ended "
+              f"'{status or 'UNKNOWN'}' (timeout 300s) — skipping this query")
+        return []
     dataset_id = run.get("defaultDatasetId", "")
     if not dataset_id:
         return []
@@ -41,7 +65,7 @@ def _run_query(api_key: str, query: str) -> list[Job]:
             description=item.get("description", ""),
             location=item.get("location", ""),
             source="indeed",
-            posted_date=item.get("postedAt", ""),
+            posted_date=_ago_to_iso(item.get("postedAt", "")),
             salary_min=item.get("salaryMin", 0) or 0,
             salary_max=item.get("salaryMax", 0) or 0,
         ))

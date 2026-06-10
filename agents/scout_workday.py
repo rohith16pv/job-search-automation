@@ -1,16 +1,23 @@
 """
-Workday scout — config-driven scrape of individual Workday career pages.
-Each company has a unique Workday subdomain; we hit their public job search API.
-Requires APIFY_API_KEY for JS-heavy pages, else falls back to a simple GET.
+Workday scout — uses each tenant's public CXS search API:
+  POST https://{host}/wday/cxs/{tenant}/{site}/jobs
+  body: {"searchText": ..., "limit": N, "offset": 0, "appliedFacets": {}}
+
+Config entries in job_sources.yml need: name, host, tenant, site, keyword.
+Descriptions are fetched per matched job from the CXS detail endpoint
+(capped per company to keep the run fast).
 """
 import asyncio
 import os
 import re
 import yaml
 import aiohttp
-from .base import Job, make_job_id
+from datetime import date, timedelta
+from .base import Job, make_job_id, is_pm_title
 
-_PM_SIGNALS = ["product manager", "head of product", "director of product", "staff pm", "principal pm"]
+_UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "Accept": "application/json"}
+_MAX_DETAILS_PER_COMPANY = 15
+_SEARCH_LIMIT = 20
 
 
 def _load_companies() -> list[dict]:
@@ -19,63 +26,87 @@ def _load_companies() -> list[dict]:
         return yaml.safe_load(f).get("workday", [])
 
 
-async def _fetch_workday_api(session: aiohttp.ClientSession, entry: dict) -> list[Job]:
-    """
-    Workday exposes a semi-public search API at:
-    /wday/cxs/{tenant}/{instance}/jobs  (POST with JSON body)
-    This pattern works for many but not all Workday instances.
-    """
-    jobs = []
-    try:
-        name = entry.get("name", "Company")
-        base_url = entry.get("url", "")
-        keyword = entry.get("keyword", "product manager")
+def _posted_to_iso(posted: str) -> str:
+    """Convert Workday's 'Posted Today' / 'Posted 3 Days Ago' to ISO, best-effort."""
+    p = (posted or "").lower()
+    if "today" in p:
+        return str(date.today())
+    if "yesterday" in p:
+        return str(date.today() - timedelta(days=1))
+    m = re.search(r"(\d+)\+?\s*day", p)
+    if m:
+        return str(date.today() - timedelta(days=int(m.group(1))))
+    return ""
 
-        # Try to infer the Workday API path from the URL
-        # Pattern: https://wd5.myworkday.com/{company}/d/jobs → API at /wday/cxs/{company}/FW_v1/jobs
-        match = re.search(r"myworkday\.com/([^/]+)", base_url)
-        if not match:
-            return []
-        tenant = match.group(1)
-        api_url = f"https://www.myworkday.com/wday/cxs/{tenant}/FW_v1/jobs"
-        payload = {
-            "appliedFacets": {},
-            "limit": 20,
-            "offset": 0,
-            "searchText": keyword,
-        }
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        async with session.post(api_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+
+def _strip_html(html: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", html or "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+async def _fetch_company(session: aiohttp.ClientSession, entry: dict) -> list[Job]:
+    jobs = []
+    name = entry.get("name", "Company")
+    try:
+        host, tenant, site = entry["host"], entry["tenant"], entry["site"]
+        keyword = entry.get("keyword", "product manager")
+        api = f"https://{host}/wday/cxs/{tenant}/{site}"
+
+        async with session.post(
+            f"{api}/jobs",
+            json={"searchText": keyword, "limit": _SEARCH_LIMIT, "offset": 0, "appliedFacets": {}},
+            headers={**_UA, "Content-Type": "application/json"},
+            timeout=aiohttp.ClientTimeout(total=20),
+        ) as resp:
             if resp.status != 200:
+                print(f"  [workday] {name}: search HTTP {resp.status}")
                 return []
             data = await resp.json(content_type=None)
 
-        for item in data.get("jobPostings", []):
-            title = item.get("title", "")
-            if not any(s in title.lower() for s in _PM_SIGNALS):
-                continue
+        matched = [
+            item for item in data.get("jobPostings", [])
+            if is_pm_title(item.get("title", ""))
+        ][:_MAX_DETAILS_PER_COMPANY]
+
+        for item in matched:
+            title = item.get("title", "").strip()
             ext_path = item.get("externalPath", "")
-            job_url = f"https://www.myworkday.com{ext_path}" if ext_path else base_url
-            location = item.get("locationsText", "")
+            job_url = f"https://{host}/en-US/{site}{ext_path}"
+
+            # Fetch description from the detail endpoint (best-effort)
+            description = ""
+            try:
+                async with session.get(
+                    f"{api}{ext_path}", headers=_UA,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as dresp:
+                    if dresp.status == 200:
+                        detail = await dresp.json(content_type=None)
+                        description = _strip_html(
+                            detail.get("jobPostingInfo", {}).get("jobDescription", "")
+                        )
+            except Exception:
+                pass
+
             jobs.append(Job(
                 id=make_job_id(job_url),
                 title=title,
                 company=name,
                 url=job_url,
-                description=item.get("jobDescription", ""),
-                location=location,
+                description=description,
+                location=item.get("locationsText", ""),
                 source="workday",
-                posted_date=item.get("postedOn", "")[:10] if item.get("postedOn") else "",
+                posted_date=_posted_to_iso(item.get("postedOn", "")),
             ))
     except Exception as e:
-        print(f"  [workday] {entry.get('name', '?')}: {e}")
+        print(f"  [workday] {name}: {e}")
     return jobs
 
 
 async def scout_workday(session: aiohttp.ClientSession) -> list[Job]:
     companies = _load_companies()
     all_jobs: list[Job] = []
-    results = await asyncio.gather(*[_fetch_workday_api(session, c) for c in companies], return_exceptions=True)
+    results = await asyncio.gather(*[_fetch_company(session, c) for c in companies], return_exceptions=True)
     for r in results:
         if isinstance(r, list):
             all_jobs.extend(r)

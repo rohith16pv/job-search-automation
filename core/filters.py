@@ -7,6 +7,7 @@ Safe defaults:
 - "remote" anywhere in location → keep (AI will handle non-US remote)
 - Empty posted_date → keep (can't tell; Lever/Workday may not always provide it)
 """
+import re
 from datetime import date, timedelta
 
 # Unambiguous non-US signals — long enough to avoid false positives on US locations.
@@ -57,6 +58,15 @@ _NON_US_SIGNALS = frozenset([
 
 _REMOTE_SIGNALS = ("remote", "work from home", "wfh", "distributed")
 
+# Whole-word matching only — naive substring checks drop US cities
+# ("india" in "Indianapolis", "perth" in "Perth Amboy" without boundaries, etc.).
+_NON_US_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(s) for s in _NON_US_SIGNALS) + r")\b"
+)
+_REMOTE_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(s) for s in _REMOTE_SIGNALS) + r")\b"
+)
+
 
 def _is_usa_or_remote(location: str) -> bool:
     """True if the job is in the USA or explicitly remote (pass through)."""
@@ -64,12 +74,11 @@ def _is_usa_or_remote(location: str) -> bool:
         return True
     loc = location.lower()
     # Remote roles pass through — AI will handle non-US-remote with its score cap
-    if any(s in loc for s in _REMOTE_SIGNALS):
+    if _REMOTE_RE.search(loc):
         return True
-    # Check for clear non-US signals
-    for signal in _NON_US_SIGNALS:
-        if signal in loc:
-            return False
+    # Check for clear non-US signals (whole words only)
+    if _NON_US_RE.search(loc):
+        return False
     return True  # unrecognised or clearly US — keep
 
 

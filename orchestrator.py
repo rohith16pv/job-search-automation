@@ -16,6 +16,7 @@ import asyncio
 import dataclasses
 import json
 import os
+import shutil
 import sys
 from datetime import datetime
 
@@ -38,11 +39,12 @@ from agents import (
     scout_apple_jobs,
 )
 from agents.base import Job
-from core.dedup import dedup_jobs
+from core.dedup import dedup_jobs, mark_seen
 from core.filters import apply_hard_filters
 from core.scorer import score_jobs_batch
-from core.gemini_client import is_gemini_available
+from core.claude_client import require_claude, ClaudeUnavailableError, ClaudeUsageLimitError, CLAUDE_MODEL
 from core.resume_tailor import tailor_resume
+from core import health, improve
 from integrations.google_docs import read_resume_from_gdoc
 from integrations.notion_client import NotionClient
 from integrations.google_sheets import SheetsClient
@@ -68,14 +70,30 @@ def _load_store() -> dict[str, dict]:
     try:
         with open(_STORE_PATH) as f:
             return json.load(f)
-    except Exception:
-        return {}
+    except Exception as e:
+        # Treating a corrupt store as empty would silently re-tailor every job
+        # (and re-spend Claude on all of it) — quarantine and abort instead.
+        quarantine = _STORE_PATH + ".corrupt"
+        shutil.copy2(_STORE_PATH, quarantine)
+        raise RuntimeError(
+            f"jobs_store.json is unreadable ({e}) — refusing to continue with an empty "
+            f"store. Backed up to {quarantine}; restore or delete it, then re-run."
+        ) from e
 
 
 def _save_store(store: dict[str, dict]) -> None:
     os.makedirs(_CACHE_DIR, exist_ok=True)
-    with open(_STORE_PATH, "w") as f:
+    tmp = _STORE_PATH + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(store, f, indent=2)
+    os.replace(tmp, _STORE_PATH)  # atomic — a crash mid-write can't truncate the store
+
+
+def _job_from_store(d: dict) -> Job:
+    """Rebuild a Job from a store entry, ignoring bookkeeping keys (e.g.
+    sheets_pending) that aren't Job dataclass fields."""
+    fields = {f.name for f in dataclasses.fields(Job)}
+    return Job(**{k: v for k, v in d.items() if k in fields})
 
 
 def _merge_into_store(jobs: list[Job]) -> dict[str, dict]:
@@ -111,6 +129,50 @@ def _store_update_gdoc(job: Job) -> None:
         _save_store(store)
 
 
+def _store_flag_sheets_pending(job: Job, pending: bool = True) -> None:
+    """Mark a job whose Sheets row failed to publish — retried by
+    _sync_pending_sheets() at the start of every subsequent run."""
+    store = _load_store()
+    if job.id in store:
+        if pending:
+            store[job.id]["sheets_pending"] = True
+        else:
+            store[job.id].pop("sheets_pending", None)
+        _save_store(store)
+
+
+def _sheet_tab_for(job: Job) -> str:
+    return "P0 Hot Leads" if job.score >= 70 else ("P1 Jobs" if job.score >= 50 else "P2 Review")
+
+
+async def _sync_pending_sheets(sheets) -> None:
+    """Retry Sheets rows that failed to publish in earlier runs. The store is
+    the source of truth; this heals the 'GDoc exists but Sheets row is stale'
+    gap left by transient Sheets failures."""
+    store = _load_store()
+    pending = [(jid, d) for jid, d in store.items() if d.get("sheets_pending")]
+    if not pending:
+        return
+    print(f"  [sheets] retrying {len(pending)} row(s) that failed to publish previously...")
+    cleared = []
+    for jid, d in pending:
+        job = _job_from_store(d)
+        tab = _sheet_tab_for(job)
+        if job.resume_gdoc_url:
+            ok = await sheets.update_gdoc_url(job, tab)  # upserts the GDoc link
+        else:
+            ok = await sheets.upsert_row(tab, job)  # appends only if the row is missing
+        if ok:
+            cleared.append(jid)
+        else:
+            print(f"  [sheets] ⚠ still failing for {job.company} — will retry next run")
+    if cleared:
+        store = _load_store()
+        for jid in cleared:
+            store.get(jid, {}).pop("sheets_pending", None)
+        _save_store(store)
+
+
 def _load_pending_p0() -> list[Job]:
     """
     Return all P0 jobs (score ≥ 70) that don't yet have a GDoc URL.
@@ -122,7 +184,7 @@ def _load_pending_p0() -> list[Job]:
             "No job store found. Run `python orchestrator.py --scan-only` first."
         )
     pending = [
-        Job(**d) for d in store.values()
+        _job_from_store(d) for d in store.values()
         if d.get("score", 0) >= 70 and not d.get("resume_gdoc_url", "")
     ]
     total_p0 = sum(1 for d in store.values() if d.get("score", 0) >= 70)
@@ -142,7 +204,7 @@ def _load_pending_p1() -> list[Job]:
             "No job store found. Run `python orchestrator.py --scan-only` first."
         )
     pending = [
-        Job(**d) for d in store.values()
+        _job_from_store(d) for d in store.values()
         if 50 <= d.get("score", 0) < 70 and not d.get("resume_gdoc_url", "")
     ]
     total_p1 = sum(1 for d in store.values() if 50 <= d.get("score", 0) < 70)
@@ -162,12 +224,12 @@ def _banner(mode: str = "full") -> None:
         "resume-p1": "Stage 2b — Create P1 Tailored Resumes",
         "dry":       "Dry Run — Score Only",
     }
-    groq = "Groq / Llama 3.1 8B" if is_gemini_available() else "keyword-only"
     print("=" * 60)
     print(f"  Job Search Automation  [{labels.get(mode, mode)}]")
     print(f"  {ts}")
-    print(f"  Scoring: {groq}")
+    print(f"  Scoring: Claude ({CLAUDE_MODEL}, subscription via claude CLI)")
     print("=" * 60)
+    require_claude()  # Claude is mandatory — fail here, before any scraping
 
 
 # ── Scouts ────────────────────────────────────────────────────────────────────
@@ -183,7 +245,7 @@ _SCOUT_NAMES = [
 _EXPECTED_ZERO_OK = set()  # none — every source should occasionally find something
 
 # If total raw jobs across all sources is below this, something is systemically
-# broken and we abort rather than waste Groq credits scoring nothing.
+# broken and we abort rather than waste Claude usage scoring nothing.
 _MIN_RAW_JOBS = 10
 
 
@@ -263,6 +325,8 @@ async def run_scan_assess() -> None:
     """
     _banner("scan")
 
+    health.preflight()  # Claude / Sheets / Apify / last-run gap — fail before spending
+
     print("\n[1/4] Loading resume...")
     resume_text = await read_resume_from_gdoc()
 
@@ -270,21 +334,41 @@ async def run_scan_assess() -> None:
     connector = aiohttp.TCPConnector(limit=20)
     async with aiohttp.ClientSession(connector=connector) as session:
         raw_jobs = await _run_scouts(session)
+        await health.audit_ats_slugs(session)  # flag boards that stopped resolving
+
+    from collections import Counter
+    health.record_and_check_counts(dict(Counter(j.source for j in raw_jobs)))
 
     print("\n[3/4] Dedup + filter + score...")
-    unique = dedup_jobs(raw_jobs, dry_run=False)
+    unique = dedup_jobs(raw_jobs)  # detection only — marked seen after writes succeed
     print(f"  {len(unique)} unique (dropped {len(raw_jobs) - len(unique)} dupes)")
     filtered, fstats = apply_hard_filters(unique, max_days=20)
     print(f"  Hard filter: -{fstats['non_usa']} non-USA, -{fstats['stale']} stale → {fstats['kept']} remain")
-    scored: list[Job] = await score_jobs_batch(filtered, resume_text)
+    limit_hit = False
+    try:
+        scored: list[Job] = await score_jobs_batch(filtered, resume_text)
+    except ClaudeUsageLimitError as e:
+        # Publish the scores already paid for; unscored jobs are NOT marked
+        # seen, so the next run rescans and rescores them.
+        scored = getattr(e, "scored", []) or []
+        if not scored:
+            raise
+        limit_hit = True
+        print(f"\n  ⚠ {e}")
+        print(f"  Publishing {len(scored)} already-scored job(s); the rest will be rescored next run.")
     scored.sort(key=lambda j: j.score, reverse=True)
 
     p0 = [j for j in scored if j.score >= 70]
     p1 = [j for j in scored if 50 <= j.score < 70]
-    print(f"  P0 (≥70): {len(p0)} | P1 (50-69): {len(p1)} | Dropped: {len(scored)-len(p0)-len(p1)}")
+    p2 = [j for j in scored if 40 <= j.score < 50]
+    print(f"  P0 (≥70): {len(p0)} | P1 (50-69): {len(p1)} | P2 (40-49): {len(p2)} | Dropped: {len(scored)-len(p0)-len(p1)-len(p2)}")
 
     print("\n[4/4] Writing to Google Sheets...")
+    # Persist BEFORE the writes so a failed Sheets row can be flagged for retry
+    # (never overwrites existing GDoc URLs)
+    _merge_into_store(scored)
     sheets = SheetsClient()
+    await _sync_pending_sheets(sheets)  # heal rows that failed in earlier runs
 
     try:
         notion = NotionClient()
@@ -293,29 +377,55 @@ async def run_scan_assess() -> None:
         print(f"  [notion] disabled: {e}")
         notion_ok = False
 
-    for job in p1:
+    def _notion_write(fn, job):
         try:
-            if notion_ok:
-                notion.add_to_p1(job)
-            await sheets.add_row("P1 Jobs", job)
-            print(f"  Written to P1 Jobs: {job.company} — {job.title} [{job.score}]")
+            fn(job)
         except Exception as e:
-            print(f"  [write] P1 error ({job.company}): {e}")
+            print(f"  [notion] write error ({job.company}): {e}")
+
+    # Sheets first (primary tracker), Notion second — a Notion failure must
+    # never block the Sheets row. Failed rows are flagged for next-run retry.
+    for job in p1:
+        if await sheets.add_row("P1 Jobs", job):
+            print(f"  Written to P1 Jobs: {job.company} — {job.title} [{job.score}]")
+        else:
+            _store_flag_sheets_pending(job)
+        if notion_ok:
+            _notion_write(notion.add_to_p1, job)
 
     for job in p0:
-        try:
-            if notion_ok:
-                notion.add_to_p0(job)
-            await sheets.add_row("P0 Hot Leads", job)  # GDoc URL blank for now
+        if await sheets.add_row("P0 Hot Leads", job):  # GDoc URL blank for now
             print(f"  Written to P0 Hot Leads: {job.company} — {job.title} [{job.score}]")
-        except Exception as e:
-            print(f"  [write] P0 error ({job.company}): {e}")
+        else:
+            _store_flag_sheets_pending(job)
+        if notion_ok:
+            _notion_write(notion.add_to_p0, job)
 
-    # Merge into persistent store (never overwrites existing GDoc URLs)
-    _merge_into_store(scored)
+    for job in p2:
+        if not await sheets.add_row("P2 Review", job):
+            _store_flag_sheets_pending(job)
+    if p2:
+        print(f"  Written {len(p2)} borderline jobs to 'P2 Review' tab")
+
+    # Only now — after scoring and writes completed — mark the batch as seen.
+    # On a usage-limit partial, mark only the scored jobs: unscored ones must
+    # come back next run.
+    mark_seen(scored if limit_hit else unique)
+    health.mark_run_complete({"raw": len(raw_jobs), "scored": len(scored), "p0": len(p0), "p1": len(p1)})
+
+    # Self-improvement: auto-add ATS boards for untracked companies that
+    # produced relevant search hits, and (Sundays) run the Claude self-review.
+    additions = await asyncio.to_thread(improve.discover_boards, scored)
+    if additions:
+        print(f"  [improve] {len(additions)} new company board(s) added to config: {', '.join(additions)}")
+    await asyncio.to_thread(improve.weekly_review)
 
     print("\n" + "=" * 60)
-    print("  SCAN + ASSESS COMPLETE")
+    if limit_hit:
+        print("  SCAN + ASSESS PARTIAL — CLAUDE USAGE LIMIT REACHED")
+        print(f"  Scored + published {len(scored)} job(s); unscored jobs will be rescored next run.")
+    else:
+        print("  SCAN + ASSESS COMPLETE")
     print(f"  P0 Hot Leads : {len(p0)} roles (GDoc column blank — run /job-auto-resume next)")
     print(f"  P1 Backlog   : {len(p1)} roles")
     print(f"  Sheets       : https://docs.google.com/spreadsheets/d/{os.environ.get('GOOGLE_SHEETS_ID','')}")
@@ -330,7 +440,7 @@ async def run_resume() -> None:
     """
     _banner("resume")
 
-    print("\n[1/3] Loading resume + pending P0 jobs...")
+    print("\n[1/2] Loading resume + pending P0 jobs...")
     resume_text = await read_resume_from_gdoc()
     p0 = _load_pending_p0()  # P0 jobs without a GDoc, across ALL past scans
 
@@ -338,27 +448,37 @@ async def run_resume() -> None:
         print("  Nothing to do — no jobs with score ≥ 70 in cache.")
         return
 
-    print("\n[2/3] Creating tailored GDocs...")
+    print("\n[2/2] Creating tailored GDocs + updating Sheets...")
     sheets = SheetsClient()
+    await _sync_pending_sheets(sheets)  # heal rows that failed in earlier runs
     done = 0
+    limit_hit = False
     for job in p0:
         try:
             print(f"\n  → {job.title} @ {job.company} [{job.score}]")
             gdoc_url = await tailor_resume(job, resume_text)
             job.resume_gdoc_url = gdoc_url
             _store_update_gdoc(job)  # persist immediately so a crash mid-batch loses nothing
+            if not await sheets.update_gdoc_url(job):  # publish immediately — Sheets never lags the store
+                _store_flag_sheets_pending(job)  # retried automatically next run
             done += 1
+        except ClaudeUnavailableError:
+            raise  # systemic — abort the whole run, don't churn through remaining jobs
+        except ClaudeUsageLimitError as e:
+            limit_hit = True
+            print(f"\n  ⚠ {e}")
+            break  # stop spending — completed GDocs are already in Sheets
         except Exception as e:
             print(f"  [tailor] error ({job.company}): {e}")
 
-    print("\n[3/3] Updating GDoc URLs in Sheets...")
-    for job in p0:
-        if job.resume_gdoc_url:
-            await sheets.update_gdoc_url(job)
-
     print("\n" + "=" * 60)
-    print("  RESUME CREATION COMPLETE")
-    print(f"  GDocs created : {done}/{len(p0)}")
+    if limit_hit:
+        print("  RESUME CREATION PAUSED — CLAUDE USAGE LIMIT REACHED")
+        print(f"  GDocs created : {done}/{len(p0)} (already published to Sheets)")
+        print(f"  Remaining     : {len(p0) - done} — re-run /job-auto-resume-p0 after the limit resets")
+    else:
+        print("  RESUME CREATION COMPLETE")
+        print(f"  GDocs created : {done}/{len(p0)}")
     print(f"  Sheets        : https://docs.google.com/spreadsheets/d/{os.environ.get('GOOGLE_SHEETS_ID','')}")
     print("=" * 60)
 
@@ -372,7 +492,7 @@ async def run_resume_p1() -> None:
     """
     _banner("resume-p1")
 
-    print("\n[1/3] Loading resume + pending P1 jobs...")
+    print("\n[1/2] Loading resume + pending P1 jobs...")
     resume_text = await read_resume_from_gdoc()
     p1 = _load_pending_p1()
 
@@ -380,38 +500,37 @@ async def run_resume_p1() -> None:
         print("  Nothing to do — all P1 jobs already have GDocs, or no P1 jobs in store.")
         return
 
-    print("\n[2/3] Creating tailored GDocs for P1 jobs...")
+    print("\n[2/2] Creating tailored GDocs for P1 jobs + updating Sheets...")
     sheets = SheetsClient()
+    await _sync_pending_sheets(sheets)  # heal rows that failed in earlier runs
     done = 0
+    limit_hit = False
     for job in p1:
         try:
             print(f"\n  → {job.title} @ {job.company} [{job.score}]")
             gdoc_url = await tailor_resume(job, resume_text)
             job.resume_gdoc_url = gdoc_url
             _store_update_gdoc(job)  # persist immediately — crash-safe
+            if not await sheets.update_gdoc_url(job, "P1 Jobs"):  # publish immediately — Sheets never lags the store
+                _store_flag_sheets_pending(job)  # retried automatically next run
             done += 1
+        except ClaudeUnavailableError:
+            raise  # systemic — abort the whole run, don't churn through remaining jobs
+        except ClaudeUsageLimitError as e:
+            limit_hit = True
+            print(f"\n  ⚠ {e}")
+            break  # stop spending — completed GDocs are already in Sheets
         except Exception as e:
             print(f"  [tailor] error ({job.company}): {e}")
 
-    print("\n[3/3] Updating GDoc URLs in P1 Jobs sheet...")
-    for job in p1:
-        if job.resume_gdoc_url:
-            try:
-                def _do(j=job):
-                    svc = sheets._get_service()
-                    row = sheets._find_row_by_url(svc, "P1 Jobs", j.url)
-                    if row:
-                        sheets._update_cell(svc, "P1 Jobs", row, "H", j.resume_gdoc_url)
-                        print(f"  [sheets] updated GDoc URL for {j.company} (row {row})")
-                    else:
-                        print(f"  [sheets] row not found for {j.company} — skipping Sheets update")
-                await asyncio.to_thread(_do)
-            except Exception as e:
-                print(f"  [sheets] update failed ({job.company}): {e}")
-
     print("\n" + "=" * 60)
-    print("  P1 RESUME CREATION COMPLETE")
-    print(f"  GDocs created : {done}/{len(p1)}")
+    if limit_hit:
+        print("  P1 RESUME CREATION PAUSED — CLAUDE USAGE LIMIT REACHED")
+        print(f"  GDocs created : {done}/{len(p1)} (already published to Sheets)")
+        print(f"  Remaining     : {len(p1) - done} — re-run /job-auto-resume-p1 after the limit resets")
+    else:
+        print("  P1 RESUME CREATION COMPLETE")
+        print(f"  GDocs created : {done}/{len(p1)}")
     print(f"  Sheets        : https://docs.google.com/spreadsheets/d/{os.environ.get('GOOGLE_SHEETS_ID','')}")
     print("=" * 60)
 
@@ -421,6 +540,9 @@ async def run_resume_p1() -> None:
 async def run() -> None:
     _banner("full")
 
+    if not DRY_RUN:
+        health.preflight()  # Claude / Sheets / Apify / last-run gap — fail before spending
+
     print("\n[1/6] Loading resume...")
     resume_text = await read_resume_from_gdoc()
 
@@ -428,9 +550,13 @@ async def run() -> None:
     connector = aiohttp.TCPConnector(limit=20)
     async with aiohttp.ClientSession(connector=connector) as session:
         raw_jobs = await _run_scouts(session)
+        await health.audit_ats_slugs(session)
+
+    from collections import Counter
+    health.record_and_check_counts(dict(Counter(j.source for j in raw_jobs)))
 
     print("\n[3/6] Dedup + filter...")
-    unique = dedup_jobs(raw_jobs, dry_run=DRY_RUN)
+    unique = dedup_jobs(raw_jobs)  # detection only — marked seen after writes succeed
     print(f"  {len(unique)} unique (dropped {len(raw_jobs) - len(unique)} dupes)")
     filtered, fstats = apply_hard_filters(unique, max_days=20)
     dropped = fstats["non_usa"] + fstats["stale"]
@@ -438,13 +564,27 @@ async def run() -> None:
         print(f"  Hard filter: -{fstats['non_usa']} non-USA, -{fstats['stale']} stale → {fstats['kept']} remain")
 
     print("\n[4/6] Scoring...")
-    scored: list[Job] = await score_jobs_batch(filtered, resume_text)
+    limit_hit = False
+    try:
+        scored: list[Job] = await score_jobs_batch(filtered, resume_text)
+    except ClaudeUsageLimitError as e:
+        # Publish the scores already paid for; unscored jobs are NOT marked
+        # seen, so the next run rescans and rescores them. Tailoring is
+        # skipped (the limit is already hit) — P0 GDocs come later via
+        # /job-auto-resume-p0.
+        scored = getattr(e, "scored", []) or []
+        if not scored:
+            raise
+        limit_hit = True
+        print(f"\n  ⚠ {e}")
+        print(f"  Publishing {len(scored)} already-scored job(s); the rest will be rescored next run.")
     scored.sort(key=lambda j: j.score, reverse=True)
 
     p0 = [j for j in scored if j.score >= 70]
     p1 = [j for j in scored if 50 <= j.score < 70]
+    p2 = [j for j in scored if 40 <= j.score < 50]
 
-    print(f"\n[5/6] Routing: P0={len(p0)} | P1={len(p1)} | Dropped={len(scored)-len(p0)-len(p1)}")
+    print(f"\n[5/6] Routing: P0={len(p0)} | P1={len(p1)} | P2={len(p2)} | Dropped={len(scored)-len(p0)-len(p1)-len(p2)}")
 
     if DRY_RUN:
         print("\n--- DRY RUN — top 10 scored jobs ---")
@@ -454,6 +594,9 @@ async def run() -> None:
         return
 
     print("\n[6/6] Writing to Notion + Sheets + creating GDocs...")
+    # Persist scored jobs BEFORE tailoring: if the usage limit hits mid-batch,
+    # untailored P0/P1 jobs stay pending in the store for /job-auto-resume-*.
+    _merge_into_store(scored)
     try:
         notion = NotionClient()
         notion_ok = True
@@ -461,29 +604,65 @@ async def run() -> None:
         print(f"  [notion] disabled: {e}")
         notion_ok = False
     sheets = SheetsClient()
+    await _sync_pending_sheets(sheets)  # heal rows that failed in earlier runs
+
+    def _notion_write(fn, job):
+        try:
+            fn(job)
+        except Exception as e:
+            print(f"  [notion] write error ({job.company}): {e}")
 
     for job in p1:
-        try:
-            if notion_ok:
-                notion.add_to_p1(job)
-            await sheets.add_row("P1 Jobs", job)
-        except Exception as e:
-            print(f"  [write] P1 error ({job.company}): {e}")
+        if not await sheets.add_row("P1 Jobs", job):
+            _store_flag_sheets_pending(job)
+        if notion_ok:
+            _notion_write(notion.add_to_p1, job)
 
     for job in p0:
-        try:
-            print(f"\n  Tailoring: {job.title} @ {job.company}...")
-            gdoc = await tailor_resume(job, resume_text)
-            job.resume_gdoc_url = gdoc
-            if notion_ok:
-                notion.add_to_p0(job)
-            await sheets.add_row("P0 Hot Leads", job)
-        except Exception as e:
-            print(f"  [write] P0 error ({job.company}): {e}")
+        if not limit_hit:
+            try:
+                print(f"\n  Tailoring: {job.title} @ {job.company}...")
+                gdoc = await tailor_resume(job, resume_text)
+                job.resume_gdoc_url = gdoc
+                _store_update_gdoc(job)  # persist immediately — crash-safe
+            except ClaudeUnavailableError:
+                raise
+            except ClaudeUsageLimitError as e:
+                limit_hit = True
+                print(f"\n  ⚠ {e}")
+                print("  Remaining P0 jobs stay pending in the store — run /job-auto-resume-p0 after the limit resets.")
+            except Exception as e:
+                print(f"  [tailor] error ({job.company}): {e}")
+        # Publish the row regardless — Sheets first (primary tracker), then
+        # Notion. A tailoring or Notion failure must never bury a hot lead.
+        if not await sheets.add_row("P0 Hot Leads", job):
+            _store_flag_sheets_pending(job)
+        if notion_ok:
+            _notion_write(notion.add_to_p0, job)
+
+    for job in p2:
+        if not await sheets.add_row("P2 Review", job):
+            _store_flag_sheets_pending(job)
+
+    # Only now — after scoring and writes completed — mark the batch as seen.
+    # On a usage-limit partial, mark only the scored jobs: unscored ones must
+    # come back next run.
+    mark_seen(scored if limit_hit else unique)
+    health.mark_run_complete({"raw": len(raw_jobs), "scored": len(scored), "p0": len(p0), "p1": len(p1)})
+
+    additions = await asyncio.to_thread(improve.discover_boards, scored)
+    if additions:
+        print(f"  [improve] {len(additions)} new company board(s) added to config: {', '.join(additions)}")
+    await asyncio.to_thread(improve.weekly_review)
 
     print("\n" + "=" * 60)
-    print("  DONE")
-    print(f"  P0 (with GDocs) : {len(p0)}")
+    if limit_hit:
+        tailored = sum(1 for j in p0 if j.resume_gdoc_url)
+        print("  DONE (PAUSED EARLY — CLAUDE USAGE LIMIT REACHED)")
+        print(f"  P0 (with GDocs) : {tailored}/{len(p0)} — rest pending; /job-auto-resume-p0 after reset")
+    else:
+        print("  DONE")
+        print(f"  P0 (with GDocs) : {len(p0)}")
     print(f"  P1 backlog      : {len(p1)}")
     print("=" * 60)
 
@@ -491,11 +670,27 @@ async def run() -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    if SCAN_ONLY:
-        asyncio.run(run_scan_assess())
-    elif RESUME_ONLY:
-        asyncio.run(run_resume())
-    elif RESUME_P1:
-        asyncio.run(run_resume_p1())
-    else:
-        asyncio.run(run())
+    try:
+        if SCAN_ONLY:
+            asyncio.run(run_scan_assess())
+        elif RESUME_ONLY:
+            asyncio.run(run_resume())
+        elif RESUME_P1:
+            asyncio.run(run_resume_p1())
+        else:
+            asyncio.run(run())
+    except ClaudeUnavailableError as e:
+        print("\n" + "!" * 60)
+        print("  RUN ABORTED — CLAUDE UNAVAILABLE")
+        print(f"  {e}")
+        print("!" * 60)
+        raise SystemExit(1)
+    except ClaudeUsageLimitError as e:
+        # Reached here only when the limit hits during SCORING (tailoring loops
+        # handle it inline). Nothing was written yet and nothing is marked seen,
+        # so the next run rescans and rescores the same batch cleanly.
+        print("\n" + "!" * 60)
+        print("  RUN STOPPED — CLAUDE USAGE LIMIT REACHED")
+        print(f"  {e}")
+        print("!" * 60)
+        raise SystemExit(2)

@@ -1,8 +1,9 @@
 """
-Job scorer — two-pass: keyword pre-filter then Gemini deep score.
+Job scorer — two-pass: keyword pre-filter then Claude deep score.
 
 Pass 1 (always runs): keyword-based 0-100, instant, no API.
-Pass 2 (when GEMINI_API_KEY set): Gemini 2.0 Flash re-scores candidates ≥ 30.
+Pass 2 (requires claude CLI, mandatory): Claude re-scores candidates ≥ 30.
+If Claude is missing or not authenticated the run aborts — no keyword-only fallback.
 
 score_job()       → keyword score only (used for pre-filter)
 score_jobs_batch() → full two-pass scoring (used by orchestrator)
@@ -72,7 +73,11 @@ def _score_title(title: str, cfg: dict) -> tuple[int, str, bool]:
             pts = int(cfg["weights"]["title_match"] * 0.40)
             return pts, f"partial: '{kw}'", False
 
-    return 0, "no title match", True  # unrecognised title treated as blocked
+    # Unrecognised title: partial credit so the AI deep-score gets to judge it.
+    # (Hard-blocking unknown conventions buried titles like Capital One's
+    # "Senior Manager, Product Management" — blockers above still hard-reject.)
+    pts = int(cfg["weights"]["title_match"] * 0.40)
+    return pts, "unrecognized title — AI judges", False
 
 
 def _score_domain(text: str, cfg: dict) -> tuple[int, list[str]]:
@@ -153,9 +158,12 @@ def score_job(job: Job, _resume_text: str = "") -> Job:
     seniority_pts, seniority_note = _score_seniority(full_text, cfg)
     location_pts, location_note = _score_location(job.location, job.description, cfg)
 
-    # Blocked titles are hard-zeroed — domain/skills can't rescue them
+    # Blocked titles are hard-zeroed — domain/skills can't rescue them.
+    # Logged so the weekly self-review can catch false negatives.
     if is_blocked:
         total = 0
+        from core.improve import log_blocked_title
+        log_blocked_title(job.title, job.company, title_note)
     else:
         total = title_pts + domain_pts + skills_pts + seniority_pts + location_pts
 
@@ -174,18 +182,17 @@ async def score_jobs_batch(jobs: list, resume_text: str = "") -> list:
     """
     Full two-pass scoring:
       1. Keyword score every job
-      2. If Gemini available, deep-score candidates with keyword score >= 30
+      2. If Claude available, deep-score candidates with keyword score >= 30
     Returns all jobs with final scores attached.
     """
-    from core.gemini_client import GeminiClient, is_gemini_available
+    from core.claude_client import ClaudeClient, require_claude
 
     # Pass 1: keyword score all
     for job in jobs:
         score_job(job, resume_text)
 
-    if not is_gemini_available():
-        print("  [scorer] Gemini not configured — using keyword scores only")
-        return jobs
+    # Claude is mandatory — abort loudly rather than degrade to keyword-only
+    require_claude()
 
     # Only AI-score jobs that passed the title filter (title_pts > 0) AND keyword score >= 30
     candidates = [
@@ -195,33 +202,30 @@ async def score_jobs_batch(jobs: list, resume_text: str = "") -> list:
     ]
     skipped = [j for j in jobs if j not in candidates]
 
-    # Optional cap for testing: set GROQ_SCORE_LIMIT=5 in .env
-    limit = int(os.environ.get("GROQ_SCORE_LIMIT", 0))
+    # Optional cap for testing: set AI_SCORE_LIMIT=5 in .env (GROQ_SCORE_LIMIT honored for compat)
+    limit = int(os.environ.get("AI_SCORE_LIMIT", 0) or os.environ.get("GROQ_SCORE_LIMIT", 0))
     cut = []  # candidates not AI-scored due to limit — returned with keyword scores
     if limit > 0:
         all_candidates = sorted(candidates, key=lambda j: j.score, reverse=True)
         candidates = all_candidates[:limit]
         cut = all_candidates[limit:]
-        print(f"  [scorer] AI scoring top {limit} candidates (GROQ_SCORE_LIMIT={limit}, {len(cut)} kept at keyword score)")
+        print(f"  [scorer] AI scoring top {limit} candidates (AI_SCORE_LIMIT={limit}, {len(cut)} kept at keyword score)")
     else:
         print(f"  [scorer] AI deep-scoring {len(candidates)} candidates (skipping {len(skipped)} blocked/low)")
 
-    try:
-        client = GeminiClient(resume_text)
-        candidates = await client.score_jobs_batch(candidates)
-        print(f"  [scorer] AI scoring complete")
-    except Exception as e:
-        print(f"  [scorer] AI error ({e}) — keeping keyword scores")
+    client = ClaudeClient(resume_text)
+    candidates = await client.score_jobs_batch(candidates)
+    print(f"  [scorer] AI scoring complete")
 
     return candidates + cut + skipped
 
 
 def format_breakdown(job: Job) -> str:
     b = job.score_breakdown
-    # Groq-scored jobs have flat string values; keyword-scored have nested dicts
-    if b.get("source", "").startswith("groq"):
+    # AI-scored jobs have flat string values; keyword-scored have nested dicts
+    if b.get("source", "").startswith(("claude", "groq")):
         lines = [
-            f"Score: {job.score}/100  [AI scored by {b.get('source', 'groq')}]",
+            f"Score: {job.score}/100  [AI scored by {b.get('source', 'claude')}]",
             f"  Title    : {b.get('title', '')}",
             f"  Domain   : {b.get('domain', '')}",
             f"  Skills   : {b.get('skills', '')}",

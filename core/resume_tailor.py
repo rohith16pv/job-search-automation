@@ -1,24 +1,23 @@
 """
 Resume tailor — generates targeted resume suggestions for a specific job.
 
-When GEMINI_API_KEY is set:
-  - Uses Gemini 2.0 Flash to write a reworded summary, pick the best bullets,
-    add missing keywords, and suggest section order changes.
-  - Gemini's tailoring_notes are already populated by the scorer's second pass,
-    so this module just formats + saves/publishes them.
+Uses Claude (your subscription, via claude CLI) to write a reworded summary,
+pick the best bullets, add missing keywords, and suggest section order changes.
 
-Fallback (no API key):
-  - Rule-based: keyword extraction, section signal matching, static bullet lists.
+Claude is REQUIRED — if the CLI is missing or not logged in, this module raises
+ClaudeUnavailableError and the run aborts. There is no keyword-only fallback.
 
-In both cases:
+Output:
   - If Google Docs credentials exist → creates a GDoc and returns the URL.
   - Otherwise → saves locally to data/tailored/ and returns file path.
 """
+import json
 import os
 import re
 from agents.base import Job
 
 _OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "tailored")
+_CACHE_DIR = os.path.join(_OUTPUT_DIR, ".pending")  # Claude output awaiting GDoc creation
 
 _SECTION_SIGNALS = {
     "payments": ["payment", "settlement", "ach", "rtp", "rail", "treasury", "liquidity", "money movement"],
@@ -147,47 +146,124 @@ def _build_tailoring_brief(job: Job) -> str:
     return "\n".join(lines)
 
 
+def _build_replacements_brief(job: Job, replacements: dict) -> str:
+    """Render Claude's actual swaps as markdown for the no-GDocs local fallback,
+    so the refinement-loop output is preserved instead of a keyword-only brief."""
+    sections = []
+    for key, label in (("summary", "Summary"), ("skills_core", "Skills (Core)"),
+                       ("skills_domain", "Skills (Domain)")):
+        entry = replacements.get(key)
+        if isinstance(entry, dict) and entry.get("replacement"):
+            sections.append(f"## {label}\n\n**Replace:**\n> {entry.get('original', '')}\n\n"
+                            f"**With:**\n> {entry['replacement']}")
+    for i, b in enumerate(replacements.get("bullets") or [], 1):
+        if isinstance(b, dict) and b.get("replacement"):
+            sections.append(f"## Bullet {i}\n\n**Replace:**\n> {b.get('original', '')}\n\n"
+                            f"**With:**\n> {b['replacement']}")
+    if not sections:
+        return ""
+    header = [
+        f"# Tailored Resume Changes — {job.title} @ {job.company}",
+        f"**Job URL:** {job.url}",
+        f"**Score:** {job.score}/100",
+        "",
+        "_Apply these exact text swaps to your base resume._",
+        "",
+    ]
+    alignment = replacements.get("alignment") or {}
+    footer = []
+    if alignment.get("differentiator"):
+        footer += ["", f"**Differentiator:** {alignment['differentiator']}"]
+    actions = replacements.get("action_items") or []
+    if actions:
+        footer += ["", "## Action Items Before Applying"] + [f"- {a}" for a in actions]
+    return "\n".join(header) + "\n\n" + "\n\n".join(sections) + "\n".join(footer)
+
+
 async def tailor_resume(job: Job, resume_text: str = "") -> str:
     """
     Produces a tailored resume Google Doc for the job:
-      1. Calls Groq to generate exact text replacements (summary, bullets, skills).
+      1. Calls Claude to generate exact text replacements (summary, bullets, skills)
+         — or reuses cached replacements from a prior run whose GDoc step failed,
+         so transient Google errors never re-spend Claude usage.
       2. Copies the base resume GDoc and applies the replacements surgically
          (fonts and layout stay intact — only the changed text is swapped).
-      3. Returns the GDoc URL, or falls back to a local markdown file.
+      3. Returns the GDoc URL. Transient GDoc failures RAISE (job stays pending,
+         retried next run); the local-file fallback is only for setups with no
+         Google credentials at all.
     """
     from integrations.google_docs import create_tailored_doc
-    from core.gemini_client import GeminiClient, is_gemini_available
+    from core.claude_client import ClaudeClient, require_claude
 
-    replacements: dict = {}
+    # Claude is mandatory — abort loudly rather than emit a keyword-only brief
+    require_claude()
+    if not resume_text:
+        raise RuntimeError(
+            "No resume text loaded — check RESUME_GDOC_ID / Google credentials. "
+            "Tailoring requires the base resume; refusing to emit a keyword-only brief."
+        )
 
-    # --- AI tailoring (Groq) ---
-    if is_gemini_available() and resume_text:
+    # --- AI tailoring (Claude) — errors propagate and abort the run ---
+    cache_path = os.path.join(_CACHE_DIR, f"{job.id}.json")
+    replacements = None
+    if os.path.exists(cache_path):
         try:
-            print(f"    [tailor] Generating replacements via Groq...")
-            client = GeminiClient(resume_text)
-            replacements = await client.tailor_resume_for_job(job, resume_text)
-            n = len(replacements.get("bullets", [])) + (1 if replacements.get("summary") else 0)
-            print(f"    [tailor] {n} targeted changes generated")
-        except Exception as e:
-            print(f"    [tailor] Groq error ({e}) — falling back to keyword brief")
+            with open(cache_path) as f:
+                replacements = json.load(f)
+            print(f"    [tailor] Reusing cached replacements from a previous run (no Claude spend)")
+        except Exception:
+            replacements = None  # unreadable cache — regenerate
+    if replacements is None:
+        print(f"    [tailor] Generating replacements via Claude...")
+        client = ClaudeClient(resume_text)
+        replacements = await client.tailor_resume_for_job(job, resume_text)
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        with open(cache_path, "w") as f:
+            json.dump(replacements, f)
+    n = len(replacements.get("bullets", [])) + (1 if replacements.get("summary") else 0)
+    print(f"    [tailor] {n} targeted changes generated")
 
-    # --- Keyword brief fallback (if Groq unavailable or failed) ---
-    if not replacements:
-        replacements = {"_fallback_brief": _build_tailoring_brief(job)}
+    # Post-modification ATS score — prefer the review panel's claimable-coverage
+    # figure (driven to ≥90 by the refinement loop); fall back to raw alignment.
+    panel_pct = replacements.get("_ats_claimable_pct")
+    alignment = replacements.get("alignment") or {}
+    matched = alignment.get("matched_keywords") or []
+    missing = alignment.get("missing_keywords") or []
+    if panel_pct:
+        job.ats_post_score = f"{int(panel_pct)}%"
+        print(f"    [tailor] ATS post-mod score (panel, claimable keywords): {job.ats_post_score}")
+    elif matched or missing:
+        job.ats_post_score = f"{round(100 * len(matched) / (len(matched) + len(missing)))}%"
+        print(f"    [tailor] ATS post-mod score: {job.ats_post_score} ({len(matched)} matched / {len(missing)} missing)")
 
     # --- Create / update GDoc ---
+    # Transient API failures raise: the job must stay pending (NOT get a dead
+    # file:// link stored as done). The Claude output is cached above, so the
+    # retry costs no Claude usage.
     try:
         gdoc_url = await create_tailored_doc(replacements, job, resume_text)
-        if gdoc_url:
-            return gdoc_url
     except Exception as e:
-        print(f"    [tailor] GDoc creation error: {e}")
+        raise RuntimeError(
+            f"GDoc creation failed for {job.company} ({e}). Claude output is cached "
+            f"({os.path.basename(cache_path)}) — the job stays pending and the next "
+            "run retries the GDoc without re-spending Claude."
+        ) from e
+    if gdoc_url:
+        try:
+            os.remove(cache_path)  # done — no longer pending
+        except OSError:
+            pass
+        return gdoc_url
 
-    # --- Local file fallback ---
+    # --- Local file fallback (only when GDocs is not configured at all) ---
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
     safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", f"{job.company}_{job.title}")[:80]
     filepath = os.path.join(_OUTPUT_DIR, f"{safe_name}.md")
-    brief = replacements.get("_fallback_brief") or _build_tailoring_brief(job)
+    brief = _build_replacements_brief(job, replacements) or _build_tailoring_brief(job)
     with open(filepath, "w") as f:
         f.write(brief)
+    try:
+        os.remove(cache_path)
+    except OSError:
+        pass
     return f"file://{os.path.abspath(filepath)}"

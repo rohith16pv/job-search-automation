@@ -6,13 +6,7 @@ import asyncio
 import os
 import yaml
 import aiohttp
-from .base import Job, make_job_id
-
-_PM_TITLE_SIGNALS = [
-    "product manager", "product lead", "head of product",
-    "director of product", "vp of product", "group product manager",
-    "principal product", "staff product",
-]
+from .base import Job, make_job_id, is_pm_title
 
 _BASE = "https://api.lever.co/v0/postings"
 
@@ -21,11 +15,6 @@ def _load_companies() -> list[str]:
     cfg_path = os.path.join(os.path.dirname(__file__), "..", "config", "job_sources.yml")
     with open(cfg_path) as f:
         return yaml.safe_load(f).get("lever", [])
-
-
-def _is_pm_title(title: str) -> bool:
-    t = title.lower()
-    return any(sig in t for sig in _PM_TITLE_SIGNALS)
 
 
 def _parse_salary(text: str) -> tuple[int, int]:
@@ -50,7 +39,7 @@ async def _fetch_company(session: aiohttp.ClientSession, company: str) -> list[J
 
         for p in postings:
             title = p.get("text", "")
-            if not _is_pm_title(title):
+            if not is_pm_title(title):
                 continue
 
             cats = p.get("categories", {})

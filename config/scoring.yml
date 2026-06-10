@@ -7,7 +7,7 @@ weights:
   location: 5
 
 # Title keywords — case-insensitive substring match on job title only (not description).
-# Check order in scorer.py: blockers → above_level → perfect → good → partial → no match (0).
+# Check order in scorer.py: blockers → above_level → perfect → good → partial → unrecognized (partial credit, AI judges).
 # above_level is intentionally checked before perfect so bare "pm" in perfect
 # does not accidentally score "Staff PM" or "Principal PM" at 20 pts.
 title_scoring:
@@ -178,10 +178,12 @@ seniority_signals:
     - "3+ years"
     - "4+ years"
   too_junior:        # 0 pts
+    # NOTE: bare "associate" removed — it false-matched "Associate's degree" /
+    # "work with associates" in descriptions and zeroed good jobs.
     - "0-2 years"
     - "1-3 years"
     - "entry level"
-    - "associate"
+    - "associate product manager"
     - "new grad"
 
 # Location scoring
@@ -196,5 +198,6 @@ min_score_threshold: 40
 
 # Routing thresholds
 routing:
+  p2_min: 40         # Score 40–49 → P2 Review tab (borderline, eyeball manually)
   p1_min: 50         # Score ≥ 50 → P1 Backlog
   p0_min: 70         # Score ≥ 70 → Ready to Apply (resume tailored)
