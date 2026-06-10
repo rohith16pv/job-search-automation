@@ -2,7 +2,7 @@ Run Stage 1 of the job search pipeline: scout all job boards, score every postin
 
 ## What this does
 1. Fires all 11 scouts in parallel (Greenhouse, Lever, Ashby, LinkedIn, Indeed, Wellfound, SmartRecruiters, Workday, Google Careers, Amazon Jobs, Apple Jobs)
-2. Deduplicates and applies hard filters (USA-only, posted ≤ 20 days)
+2. Deduplicates and applies hard filters (USA-only, posted ≤ 10 days)
 3. Scores each job with keyword pre-filter + Claude AI deep scoring
 4. Writes P0 (score ≥ 70) rows to "P0 Hot Leads" sheet — GDoc column left blank
 5. Writes P1 (score 50–69) rows to "P1 Jobs" sheet, P2 (40–49) to "P2 Review"
