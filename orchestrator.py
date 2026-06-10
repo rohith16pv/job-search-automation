@@ -385,8 +385,10 @@ async def run_scan_assess() -> None:
 
     # Sheets first (primary tracker), Notion second — a Notion failure must
     # never block the Sheets row. Failed rows are flagged for next-run retry.
+    # Upserts (keyed by Job Link) so re-scoring a job already in the Sheet
+    # never appends a duplicate row.
     for job in p1:
-        if await sheets.add_row("P1 Jobs", job):
+        if await sheets.upsert_row("P1 Jobs", job):
             print(f"  Written to P1 Jobs: {job.company} — {job.title} [{job.score}]")
         else:
             _store_flag_sheets_pending(job)
@@ -394,7 +396,7 @@ async def run_scan_assess() -> None:
             _notion_write(notion.add_to_p1, job)
 
     for job in p0:
-        if await sheets.add_row("P0 Hot Leads", job):  # GDoc URL blank for now
+        if await sheets.upsert_row("P0 Hot Leads", job):  # GDoc URL blank for now
             print(f"  Written to P0 Hot Leads: {job.company} — {job.title} [{job.score}]")
         else:
             _store_flag_sheets_pending(job)
@@ -402,7 +404,7 @@ async def run_scan_assess() -> None:
             _notion_write(notion.add_to_p0, job)
 
     for job in p2:
-        if not await sheets.add_row("P2 Review", job):
+        if not await sheets.upsert_row("P2 Review", job):
             _store_flag_sheets_pending(job)
     if p2:
         print(f"  Written {len(p2)} borderline jobs to 'P2 Review' tab")
@@ -613,7 +615,7 @@ async def run() -> None:
             print(f"  [notion] write error ({job.company}): {e}")
 
     for job in p1:
-        if not await sheets.add_row("P1 Jobs", job):
+        if not await sheets.upsert_row("P1 Jobs", job):
             _store_flag_sheets_pending(job)
         if notion_ok:
             _notion_write(notion.add_to_p1, job)
@@ -635,13 +637,19 @@ async def run() -> None:
                 print(f"  [tailor] error ({job.company}): {e}")
         # Publish the row regardless — Sheets first (primary tracker), then
         # Notion. A tailoring or Notion failure must never bury a hot lead.
-        if not await sheets.add_row("P0 Hot Leads", job):
+        # Tailored jobs go through update_gdoc_url (upserts row + GDoc link);
+        # untailored ones through upsert_row. Neither duplicates existing rows.
+        if job.resume_gdoc_url:
+            ok = await sheets.update_gdoc_url(job)
+        else:
+            ok = await sheets.upsert_row("P0 Hot Leads", job)
+        if not ok:
             _store_flag_sheets_pending(job)
         if notion_ok:
             _notion_write(notion.add_to_p0, job)
 
     for job in p2:
-        if not await sheets.add_row("P2 Review", job):
+        if not await sheets.upsert_row("P2 Review", job):
             _store_flag_sheets_pending(job)
 
     # Only now — after scoring and writes completed — mark the batch as seen.
