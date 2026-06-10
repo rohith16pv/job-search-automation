@@ -20,9 +20,44 @@ from dotenv import load_dotenv
 load_dotenv(_ROOT / ".env")
 
 
+# Location-filter unit cases — (location, should_keep). US cities must never be
+# dropped by substring traps ("india" in "Indianapolis"); real non-US must still drop.
+_LOCATION_CASES = [
+    ("Indianapolis, IN", True),
+    ("Indiana, USA", True),
+    ("Germantown, MD", True),
+    ("San Francisco, CA", True),
+    ("Bangalore, India", False),
+    ("London, United Kingdom", False),
+    ("Toronto, Canada", False),
+    ("Remote - India", True),   # documented behavior: remote passes; AI score-caps non-US remote
+    ("Remote - US", True),
+    ("", True),                 # unknown location → keep
+]
+
+
+def check_location_filter() -> list:
+    from core.filters import _is_usa_or_remote
+    failures = []
+    for location, should_keep in _LOCATION_CASES:
+        if _is_usa_or_remote(location) != should_keep:
+            verdict = "KEEP" if should_keep else "DROP"
+            failures.append(f"location filter should {verdict} {location!r} but doesn't")
+    return failures
+
+
 def main() -> int:
     from agents.base import Job, is_pm_title
+    from core.filters import _is_usa_or_remote
     from core.scorer import score_job
+
+    loc_failures = check_location_filter()
+    if loc_failures:
+        print(f"⚠ {len(loc_failures)} LOCATION FILTER FAILURE(S):")
+        for f in loc_failures:
+            print(f"      ✗ {f}")
+    else:
+        print(f"✅ Location filter — all {len(_LOCATION_CASES)} unit cases pass.")
 
     store = json.load(open(_ROOT / "data" / "jobs_store.json"))
     jobs = store if isinstance(store, list) else list(store.values())
@@ -39,6 +74,8 @@ def main() -> int:
         job = Job(**fields)
 
         problems = []
+        if not _is_usa_or_remote(job.location):
+            problems.append("location filter would DROP it as non-USA")
         if not is_pm_title(job.title):
             problems.append("scout title filter would REJECT it")
         score_job(job)
@@ -65,7 +102,7 @@ def main() -> int:
         print(f"✅ No regressions — all {len(known_good)} known P0/P1/P2 jobs still pass "
               f"the scout filter, title scoring, and the Claude-gate under current config.")
 
-    return 1 if (regressions and "--strict" in sys.argv) else 0
+    return 1 if ((regressions or loc_failures) and "--strict" in sys.argv) else 0
 
 
 if __name__ == "__main__":

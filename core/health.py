@@ -56,13 +56,15 @@ def preflight() -> None:
     print("\n[health] Pre-flight checks...")
 
     # 1. Claude — CLI present AND authenticated (tiny live ping)
-    from core.claude_client import require_claude, _claude_call, ClaudeUnavailableError
+    from core.claude_client import require_claude, _claude_call, ClaudeUnavailableError, ClaudeUsageLimitError
     require_claude()
     try:
         _claude_call("Health check. Return only valid JSON.", 'Reply with exactly: {"ok": true}',
                      max_retries=1)
         print("  ✓ Claude reachable (subscription auth OK)")
-    except ClaudeUnavailableError:
+    except (ClaudeUnavailableError, ClaudeUsageLimitError):
+        # A usage limit must surface as itself (exit code 2, "wait for reset"),
+        # never as ClaudeUnavailableError (exit code 1, "log in again").
         raise
     except Exception as e:
         raise ClaudeUnavailableError(f"Claude health ping failed: {e}")

@@ -3,9 +3,12 @@ Self-improvement loops — the system widens its own coverage over time.
 
 1. discover_boards(scored)   — when a relevant job (score ≥ 50) shows up via
    LinkedIn/Indeed/Google for a company we don't track, probe that company's
-   Greenhouse/Lever/Ashby board. If a live board exists, AUTO-ADD it to
-   job_sources.yml so every future posting from that company arrives via the
-   reliable ATS scout instead of depending on search-query luck.
+   Greenhouse/Lever/Ashby board. If a live board exists AND the board verifiably
+   belongs to that company (slug guesses can collide with another company's
+   board), AUTO-ADD it to job_sources.yml so every future posting from that
+   company arrives via the reliable ATS scout instead of depending on
+   search-query luck. Unverifiable matches go to improvement_suggestions.md
+   for human review instead.
 
 2. log_blocked_title(...)    — every title the scorer hard-blocks is logged to
    data/blocked_titles.jsonl so the weekly review can spot false negatives.
@@ -79,15 +82,88 @@ def _probe_board(slug: str) -> str:
     return ""
 
 
-def _append_to_config(ats: str, slug: str) -> None:
-    """Insert the slug at the top of its ATS section in job_sources.yml."""
+def _norm_company(name: str) -> str:
+    """Normalize a company name for comparison: lowercase, drop punctuation
+    and corporate suffixes, collapse whitespace."""
+    base = re.sub(r"[^a-z0-9 ]", " ", (name or "").lower())
+    base = re.sub(r"\b(inc|llc|corp|co|technologies|technology|labs)\b", "", base)
+    return re.sub(r"\s+", "", base).strip()
+
+
+def _names_match(a: str, b: str) -> bool:
+    a, b = _norm_company(a), _norm_company(b)
+    return bool(a) and bool(b) and (a == b or a in b or b in a)
+
+
+def _verify_board(ats: str, slug: str, company: str) -> bool:
+    """Confirm the live board at this slug actually belongs to `company`.
+    A slug guessed from the company name can collide with a DIFFERENT
+    company's board — without this check we'd silently feed that company's
+    junk postings into scoring on every future run."""
+    import requests
+    ua = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+    target = _norm_company(company)
+    if not target:
+        return False
+    try:
+        if ats == "greenhouse":
+            # Board metadata endpoint returns the owning company's name.
+            r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}", timeout=8)
+            return r.ok and _names_match(r.json().get("name", ""), company)
+        if ats == "lever":
+            # Postings carry company context (hosted URLs, descriptions);
+            # fall back to the hosted board page, whose title names the company.
+            r = requests.get(f"https://api.lever.co/v0/postings/{slug}?mode=json&limit=1", timeout=8)
+            if r.ok and isinstance(r.json(), list) and r.json() \
+                    and target in _norm_company(json.dumps(r.json()[0])):
+                return True
+            r = requests.get(f"https://jobs.lever.co/{slug}", headers=ua, timeout=8)
+            return r.ok and target in _norm_company(r.text)
+        if ats == "ashby":
+            r = requests.get(f"https://api.ashbyhq.com/posting-api/job-board/{slug}",
+                             headers=ua, timeout=8)
+            if r.ok and target in _norm_company(json.dumps(r.json())):
+                return True
+            r = requests.get(f"https://jobs.ashbyhq.com/{slug}", headers=ua, timeout=8)
+            return r.ok and target in _norm_company(r.text)
+    except Exception:
+        pass
+    return False  # could not confirm ownership — do NOT auto-add
+
+
+def _queue_suggestion(text: str) -> None:
+    """Append a discovery note to improvement_suggestions.md for human review."""
+    os.makedirs(_DATA_DIR, exist_ok=True)
+    with open(_SUGGESTIONS_PATH, "a") as f:
+        f.write(f"\n## Board discovery — {date.today()}\n- {text}\n")
+
+
+def _append_to_config(ats: str, slug: str) -> bool:
+    """Insert the slug at the top of its ATS section in job_sources.yml.
+    Locates the section header tolerantly (whitespace/comment drift) and
+    writes atomically (temp file + os.replace) so a crash mid-write can't
+    corrupt the config. Returns False if the header can't be found."""
+    import tempfile
     with open(_CFG_PATH) as f:
         lines = f.read().split("\n")
-    header = f"{ats}:"
-    idx = lines.index(header)
+    idx = next((i for i, ln in enumerate(lines)
+                if not ln[:1].isspace() and ln.split("#", 1)[0].strip() == f"{ats}:"), None)
+    if idx is None:
+        return False
     lines.insert(idx + 1, f"  - {slug}  # auto-discovered {date.today()}")
-    with open(_CFG_PATH, "w") as f:
-        f.write("\n".join(lines))
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(_CFG_PATH)),
+                               prefix=".job_sources.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write("\n".join(lines))
+        os.replace(tmp, _CFG_PATH)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+    return True
 
 
 def discover_boards(scored_jobs: list) -> list:
@@ -123,11 +199,28 @@ def discover_boards(scored_jobs: list) -> list:
                 break
             ats = _probe_board(slug)
             if ats:
-                _append_to_config(ats, slug)
-                covered.add(slug)
-                additions.append(f"{company} → {ats}/{slug}")
-                print(f"  ✚ [improve] auto-added {ats}/{slug} ({company}) to job_sources.yml — "
-                      f"future postings arrive via the ATS scout directly")
+                if not _verify_board(ats, slug, company):
+                    # Live board, but we can't confirm it's THIS company's —
+                    # never auto-add an unverified slug (collision risk).
+                    _queue_suggestion(
+                        f"Live {ats} board at slug `{slug}` while probing for **{company}**, "
+                        f"but its company name could not be verified — check it belongs to "
+                        f"{company} before adding to job_sources.yml.")
+                    print(f"  ⚠ [improve] {ats}/{slug} is live but unverified for {company} — "
+                          f"queued for human review, NOT auto-added")
+                    found = "unverified"
+                    break
+                if _append_to_config(ats, slug):
+                    covered.add(slug)
+                    additions.append(f"{company} → {ats}/{slug}")
+                    print(f"  ✚ [improve] auto-added {ats}/{slug} ({company}) to job_sources.yml — "
+                          f"future postings arrive via the ATS scout directly")
+                else:
+                    _queue_suggestion(
+                        f"Verified {ats} board `{slug}` for **{company}**, but the `{ats}:` "
+                        f"section header was not found in job_sources.yml — add it manually.")
+                    print(f"  ⚠ [improve] verified {ats}/{slug} ({company}) but couldn't locate "
+                          f"the {ats}: section in job_sources.yml — queued for human review")
                 found = ats
                 break
         if not found:

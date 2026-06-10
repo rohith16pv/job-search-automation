@@ -63,10 +63,17 @@ def _is_auth_error(text: str) -> bool:
 
 def _is_usage_limit(text: str) -> bool:
     """Subscription usage-limit messages from the claude CLI (e.g. 'Claude usage
-    limit reached', '5-hour limit reached ∙ resets 3am'). Distinct from transient
-    rate/529 errors, which short retries can ride out."""
+    limit reached', "You've hit your session limit · resets 7:40pm"). Distinct
+    from transient rate/529 errors, which short retries can ride out."""
     t = text.lower()
-    return "usage limit" in t or "limit reached" in t or "out of extra usage" in t
+    return (
+        "usage limit" in t
+        or "session limit" in t
+        or "weekly limit" in t
+        or "limit reached" in t
+        or "out of extra usage" in t
+        or ("limit" in t and "resets" in t)  # "...hit your X limit · resets 3am"
+    )
 
 
 def _extract_json(text: str) -> dict:
@@ -111,14 +118,23 @@ def _claude_call(system_prompt: str, user_prompt: str, max_retries: int = 3) -> 
                 timeout=_CLI_TIMEOUT,
                 env=_clean_env(),
             )
-            envelope = json.loads(proc.stdout) if proc.stdout.strip() else {}
+            try:
+                envelope = json.loads(proc.stdout) if proc.stdout.strip() else {}
+            except json.JSONDecodeError:
+                # CLI errors (incl. limit messages) can arrive as plain text — keep
+                # the raw output in the error so the except-path classifiers see it
+                raise RuntimeError(
+                    f"claude CLI returned non-JSON output: {proc.stdout.strip()[:300]} "
+                    f"{proc.stderr.strip()[:200]}"
+                )
             if envelope.get("is_error"):
                 detail = str(envelope.get("result"))[:300]
                 if envelope.get("api_error_status") in (401, 403) or _is_auth_error(detail):
                     # Auth failures never fix themselves — abort the run, don't retry
                     raise ClaudeUnavailableError(f"claude CLI auth failed: {detail}. {_LOGIN_HELP}")
-                if envelope.get("api_error_status") == 429 or _is_usage_limit(detail):
+                if _is_usage_limit(detail):
                     # Subscription limit — resets in hours, not seconds. Don't retry.
+                    # (A bare 429 without limit wording is treated as transient below.)
                     raise ClaudeUsageLimitError(
                         f"Claude usage limit hit: {detail}. Completed work is preserved — "
                         "re-run after the limit resets to pick up the remainder."
@@ -130,6 +146,13 @@ def _claude_call(system_prompt: str, user_prompt: str, max_retries: int = 3) -> 
         except (ClaudeUnavailableError, ClaudeUsageLimitError):
             raise
         except Exception as e:
+            if _is_usage_limit(str(e)):
+                # Limit message surfaced via stderr/plain text instead of the JSON
+                # envelope — same fail-fast as the envelope path
+                raise ClaudeUsageLimitError(
+                    f"Claude usage limit hit: {str(e)[:300]}. Completed work is preserved — "
+                    "re-run after the limit resets to pick up the remainder."
+                ) from e
             last_err = e
             is_rate_limited = "rate" in str(e).lower() or "limit" in str(e).lower() or "529" in str(e)
             if attempt < max_retries - 1:
@@ -221,15 +244,21 @@ section_order, new_bullets_to_add — only populate if score >= 50)."""
 
     async def score_jobs_batch(self, jobs: list) -> list:
         """Score jobs sequentially — each call is a full claude CLI invocation.
-        Any failure aborts the run (no silent fallback to keyword scores)."""
+        Any failure aborts the run (no silent fallback to keyword scores).
+        On a usage limit, the jobs scored so far are attached to the exception
+        as `.scored` so the caller can publish that paid work instead of
+        discarding it and re-spending next run."""
         enriched = []
         total = len(jobs)
         for i, job in enumerate(jobs, 1):
             print(f"  [claude] scoring {i}/{total}: {job.company} / {job.title[:50]}")
             try:
                 result = await asyncio.to_thread(self._call_sync, job)
-            except (ClaudeUnavailableError, ClaudeUsageLimitError):
+            except ClaudeUnavailableError:
                 raise  # systemic — keep the type so callers can stop cleanly
+            except ClaudeUsageLimitError as e:
+                e.scored = enriched  # preserve completed (paid) scores for the caller
+                raise
             except Exception as e:
                 raise RuntimeError(
                     f"Claude scoring failed on job {i}/{total} ({job.company} / {job.title[:50]}): {e}"
@@ -895,7 +924,12 @@ def _count_swaps(result: dict) -> int:
 
 
 def _apply_result(job, result: dict) -> None:
-    job.score = max(0, min(100, int(result.get("score", job.score))))
+    try:
+        job.score = max(0, min(100, int(result.get("score", job.score))))
+    except (TypeError, ValueError):
+        # Malformed score from the model must not crash the whole batch —
+        # keep the keyword score and flag it in the breakdown below
+        print(f"  [claude] ⚠ malformed score {result.get('score')!r} for {job.company} — keeping keyword score {job.score}")
     job.score_breakdown = {
         "title": result.get("title_fit", ""),
         "domain": result.get("domain_fit", ""),

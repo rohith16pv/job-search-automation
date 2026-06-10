@@ -127,6 +127,9 @@ def _read_doc_via_api(creds) -> str:
 # ── Public: create tailored doc ───────────────────────────────────────────────
 
 async def create_tailored_doc(replacements: dict, job=None, resume_text: str = "") -> str:
+    """Returns the GDoc URL, or "" when GDocs is not configured (no credentials).
+    Transient API failures RAISE — callers must keep the job pending and retry,
+    never treat the error as 'no GDocs configured'."""
     creds = _load_creds()
     if creds is None:
         print("  [gdocs] skipped — no credentials (run scripts/authorize_google.py)")
@@ -137,31 +140,33 @@ async def create_tailored_doc(replacements: dict, job=None, resume_text: str = "
 # ── Internal: document creation + formatting ─────────────────────────────────
 
 def _create_doc_sync(replacements: dict, job, creds) -> str:
+    from googleapiclient.discovery import build
+    drive = build("drive", "v3", credentials=creds)
+    docs  = build("docs",  "v1", credentials=creds)
+
+    # 1. Title
+    title = (
+        f"Resume — {(job.company or 'Unknown').strip()} — {(job.title or 'PM').strip()}"
+        if job else "Resume — Tailored Copy"
+    )
+
+    # 2. Copy base resume (preserves all fonts + layout).
+    #    Failures here propagate: nothing was created, the job stays pending.
+    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+    copy_body = {"name": title}
+    if folder_id:
+        copy_body["parents"] = [folder_id]
+
+    doc_id = drive.files().copy(
+        fileId=_RESUME_DOC_ID,
+        body=copy_body,
+        fields="id",
+        supportsAllDrives=True,
+    ).execute()["id"]
+
+    # 3. Apply text replacements. If this fails the copy is an untailored
+    #    orphan — delete it and propagate so the job stays pending.
     try:
-        from googleapiclient.discovery import build
-        drive = build("drive", "v3", credentials=creds)
-        docs  = build("docs",  "v1", credentials=creds)
-
-        # 1. Title
-        title = (
-            f"Resume — {(job.company or 'Unknown').strip()} — {(job.title or 'PM').strip()}"
-            if job else "Resume — Tailored Copy"
-        )
-
-        # 2. Copy base resume (preserves all fonts + layout)
-        folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
-        copy_body = {"name": title}
-        if folder_id:
-            copy_body["parents"] = [folder_id]
-
-        doc_id = drive.files().copy(
-            fileId=_RESUME_DOC_ID,
-            body=copy_body,
-            fields="id",
-            supportsAllDrives=True,
-        ).execute()["id"]
-
-        # 3. Apply text replacements
         if "_fallback_brief" in replacements:
             _append_brief(docs, doc_id, replacements["_fallback_brief"])
         else:
@@ -172,53 +177,62 @@ def _create_doc_sync(replacements: dict, job, creds) -> str:
                     body={"requests": replace_requests},
                 ).execute()
                 print(f"    [gdocs] applied {len(replace_requests)} text replacements")
+    except Exception:
+        try:
+            drive.files().delete(fileId=doc_id, supportsAllDrives=True).execute()
+        except Exception:
+            print(f"    [gdocs] ⚠ could not delete orphan copy {doc_id} — remove it from Drive manually")
+        raise
 
-            # 4. Re-read doc and apply formatting passes
-            doc = docs.documents().get(documentId=doc_id).execute()
-            body = doc.get("body", {}).get("content", [])
+    # 4. Formatting + sharing are best-effort: the doc content is already
+    #    correct, so a failure here must never discard the tailored doc.
+    try:
+        doc = docs.documents().get(documentId=doc_id).execute()
+        body = doc.get("body", {}).get("content", [])
 
-            fmt_requests = []
+        fmt_requests = []
 
-            # 4a. Re-bold key phrases in replaced bullets
-            fmt_requests += _bold_phrases_requests(body, replacements)
+        # 4a. Re-bold key phrases in replaced bullets
+        fmt_requests += _bold_phrases_requests(body, replacements)
 
-            # 4b. Fix skills section: only headings bold
-            fmt_requests += _fix_skills_requests(body)
+        # 4b. Fix skills section: only headings bold
+        fmt_requests += _fix_skills_requests(body)
 
-            # 4c. Yellow highlight on every replaced paragraph for review
-            fmt_requests += _highlight_changed_requests(body, replacements)
+        # 4c. Yellow highlight on every replaced paragraph for review
+        fmt_requests += _highlight_changed_requests(body, replacements)
 
-            # 4d. Light blue highlight on the "move to top" suggestion bullet
-            reorder = replacements.get("reorder_suggestion") or {}
-            fmt_requests += _reorder_highlight_requests(body, reorder)
-            if reorder.get("bullet_fragment"):
-                print(f"    [gdocs] 💡 Move to top: \"{reorder['bullet_fragment']}...\"")
-                if reorder.get("reason"):
-                    print(f"           Reason: {reorder['reason']}")
+        # 4d. Light blue highlight on the "move to top" suggestion bullet
+        reorder = replacements.get("reorder_suggestion") or {}
+        fmt_requests += _reorder_highlight_requests(body, reorder)
+        if reorder.get("bullet_fragment"):
+            print(f"    [gdocs] 💡 Move to top: \"{reorder['bullet_fragment']}...\"")
+            if reorder.get("reason"):
+                print(f"           Reason: {reorder['reason']}")
 
-            if fmt_requests:
-                # Batch in chunks of 50 to stay under API limits
-                for i in range(0, len(fmt_requests), 50):
-                    docs.documents().batchUpdate(
-                        documentId=doc_id,
-                        body={"requests": fmt_requests[i:i+50]},
-                    ).execute()
-                print(f"    [gdocs] applied {len(fmt_requests)} formatting requests")
+        if fmt_requests:
+            # Batch in chunks of 50 to stay under API limits
+            for i in range(0, len(fmt_requests), 50):
+                docs.documents().batchUpdate(
+                    documentId=doc_id,
+                    body={"requests": fmt_requests[i:i+50]},
+                ).execute()
+            print(f"    [gdocs] applied {len(fmt_requests)} formatting requests")
+    except Exception as e:
+        print(f"    [gdocs] ⚠ formatting pass failed ({e}) — doc text is correct, review formatting manually")
 
-        # 5. Anyone with link can edit
+    # 5. Anyone with link can edit
+    try:
         drive.permissions().create(
             fileId=doc_id,
             body={"type": "anyone", "role": "writer"},
         ).execute()
-
-        url = f"https://docs.google.com/document/d/{doc_id}/edit"
-        print(f"  GDoc created: {title}")
-        print(f"    → {url}")
-        return url
-
     except Exception as e:
-        print(f"  [gdocs] creation failed: {e}")
-        return ""
+        print(f"    [gdocs] ⚠ link-sharing failed ({e}) — open the doc from Drive directly")
+
+    url = f"https://docs.google.com/document/d/{doc_id}/edit"
+    print(f"  GDoc created: {title}")
+    print(f"    → {url}")
+    return url
 
 
 # ── Helpers: text replacement ─────────────────────────────────────────────────

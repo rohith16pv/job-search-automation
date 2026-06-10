@@ -39,7 +39,16 @@ def _run_query(api_key: str, query: str) -> list[Job]:
         "maxItemsPerSearch": 50,
         "saveOnlyUniqueItems": True,
     }
-    run = client.actor("misceres/indeed-scraper").call(run_input=run_input)
+    # timeout_secs aborts a hung actor run server-side; wait_secs caps how long
+    # we block client-side — one stuck source must never stall the whole pipeline.
+    run = client.actor("misceres/indeed-scraper").call(
+        run_input=run_input, timeout_secs=300, wait_secs=330
+    )
+    status = (run or {}).get("status", "")
+    if status != "SUCCEEDED":
+        print(f"  [indeed] WARNING: query '{query}' actor run ended "
+              f"'{status or 'UNKNOWN'}' (timeout 300s) — skipping this query")
+        return []
     dataset_id = run.get("defaultDatasetId", "")
     if not dataset_id:
         return []

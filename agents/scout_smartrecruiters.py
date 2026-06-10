@@ -36,11 +36,20 @@ async def _fetch_company(session: aiohttp.ClientSession, company: str) -> list[J
             remote = p.get("workplace", {}).get("wfhPolicy", "")
             if "remote" in remote.lower():
                 location_str = f"Remote — {location_str}" if location_str else "Remote"
+            # Public posting page — p["ref"] is the raw API endpoint (JSON blob),
+            # never publish it as the apply link. Id stays derived from ref so
+            # existing stored ids remain stable.
+            company_identifier = p.get("company", {}).get("identifier", "") or company
+            posting_id = p.get("id", "")
+            public_url = (
+                f"https://jobs.smartrecruiters.com/{company_identifier}/{posting_id}"
+                if posting_id else p.get("ref", "")
+            )
             jobs.append(Job(
                 id=make_job_id(p.get("ref", p.get("id", ""))),
                 title=title,
                 company=company.title(),
-                url=p.get("ref", ""),
+                url=public_url,
                 description=p.get("jobAd", {}).get("sections", {}).get("jobDescription", {}).get("text", ""),
                 location=location_str,
                 source="smartrecruiters",

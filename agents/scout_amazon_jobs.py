@@ -32,12 +32,17 @@ async def scout_amazon_jobs(session: aiohttp.ClientSession) -> list[Job]:
             if not is_pm_title(title):
                 continue
             job_id = item.get("id_icims", item.get("job_id", ""))
-            url = f"https://www.amazon.jobs/en/jobs/{job_id}" if job_id else ""
+            if not job_id:
+                # No id means no URL and a title-only hash that collapses
+                # distinct postings — skip rather than publish a broken entry.
+                print(f"  [amazon_jobs] skipping posting with no job id: {title!r}")
+                continue
+            url = f"https://www.amazon.jobs/en/jobs/{job_id}"
             location = item.get("location", "")
             posted_raw = item.get("posted_date", item.get("updated_time", ""))
             posted_date = posted_raw[:10] if posted_raw else ""
             jobs.append(Job(
-                id=make_job_id(url or title + "amazon"),
+                id=make_job_id(url),
                 title=title,
                 company="Amazon",
                 url=url,

@@ -55,24 +55,32 @@ def _load_creds():
     return service_account.Credentials.from_service_account_file(path, scopes=_SCOPES)
 
 
+def _cell(value: str) -> str:
+    """Neutralize spreadsheet formula injection in scraped text: a job title or
+    company starting with '=', '+' or '@' would otherwise be evaluated as a
+    formula under USER_ENTERED (e.g. =IMPORTXML exfiltration)."""
+    s = str(value)
+    return "'" + s if s[:1] in ("=", "+", "@") else s
+
+
 def _job_row(job: Job, status: str = "New") -> list:
     """Build a row in the A–L schema from a Job."""
     salary = ""
     if job.salary_min and job.salary_max:
         salary = f"Salary: ${job.salary_min:,}–${job.salary_max:,}"
     return [
-        job.posted_date or "",
+        _cell(job.posted_date or ""),
         str(date.today()),
-        job.company,
-        job.title,
+        _cell(job.company),
+        _cell(job.title),
         status,
         job.score,
         getattr(job, "ats_post_score", "") or "",
-        job.location,
-        job.source,
-        job.url,
+        _cell(job.location),
+        _cell(job.source),
+        _cell(job.url),
         job.resume_gdoc_url or "",
-        salary,
+        _cell(salary),
     ]
 
 
@@ -204,11 +212,13 @@ class SheetsClient:
             body={"values": [[value]]},
         ).execute()
 
-    async def update_gdoc_url(self, job: Job, sheet_name: str = "P0 Hot Leads") -> None:
+    async def update_gdoc_url(self, job: Job, sheet_name: str = "P0 Hot Leads") -> bool:
         """Find the job's row (by Job Link) and write the Resume GDoc URL (col K)
-        plus the ATS Post-Mod Score (col G) if the tailor computed one."""
+        plus the ATS Post-Mod Score (col G) if the tailor computed one.
+        Returns False on failure so the caller can flag the job for retry
+        (when disabled, returns True — there is nothing to sync)."""
         if not self._enabled:
-            return
+            return True
         try:
             def _do():
                 svc = self._get_service()
@@ -225,13 +235,38 @@ class SheetsClient:
                     print(f"  [sheets] row not found for {job.company} — appending instead")
                     self._append_row(sheet_name, _job_row(job, status="Resume Ready"))
             await asyncio.to_thread(_do)
+            return True
         except Exception as e:
-            print(f"  [sheets] update_gdoc_url failed ({job.company}): {e}")
+            print(f"  [sheets] ⚠ update_gdoc_url failed ({job.company}): {e}")
+            return False
 
-    async def add_row(self, sheet_name: str, job: Job) -> None:
+    async def add_row(self, sheet_name: str, job: Job) -> bool:
+        """Append the job's row. Returns False on failure so the caller can
+        flag the job for retry (when disabled, returns True)."""
         if not self._enabled:
-            return
+            return True
         try:
             await asyncio.to_thread(self._append_row, sheet_name, _job_row(job))
+            return True
         except Exception as e:
-            print(f"  [sheets] append failed ({sheet_name}): {e}")
+            print(f"  [sheets] ⚠ append failed ({sheet_name}, {job.company}): {e}")
+            return False
+
+    async def upsert_row(self, sheet_name: str, job: Job) -> bool:
+        """Append the job's row only if no row with its Job Link exists yet.
+        Used by retry passes so a row whose first publish attempt actually
+        landed is never duplicated."""
+        if not self._enabled:
+            return True
+        try:
+            def _do():
+                svc = self._get_service()
+                self._ensure_headers(svc, sheet_name)
+                if self._find_row_by_url(svc, sheet_name, job.url) is None:
+                    self._append_row(sheet_name, _job_row(job))
+                    print(f"  [sheets] published missing row for {job.company} ({sheet_name})")
+            await asyncio.to_thread(_do)
+            return True
+        except Exception as e:
+            print(f"  [sheets] ⚠ upsert failed ({sheet_name}, {job.company}): {e}")
+            return False
